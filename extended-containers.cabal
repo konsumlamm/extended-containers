@@ -1,0 +1,29 @@
+name:                extended-containers
+version:             0.1.0.0
+-- synopsis:
+-- description:
+homepage:            https://github.com/konsumlamm/extended-containers#readme
+license:             BSD3
+license-file:        LICENSE
+author:              konsumlamm
+maintainer:          konsumlamm@gmail.com
+copyright:           2019 konsumlamm
+category:            Web
+build-type:          Simple
+extra-source-files:  README.md
+cabal-version:       >= 1.10
+
+library
+  hs-source-dirs:      src
+  exposed-modules:
+    Data.Heap
+    Data.PrioHeap
+    Data.TrieVector
+  other-modules:
+    Data.Heap.Internal
+    Data.PrioHeap.Internal
+  ghc-options:         -O -Wall
+  build-depends:
+    base >= 4.7 && < 5,
+    vector
+  default-language:    Haskell2010
