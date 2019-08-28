@@ -3,7 +3,6 @@ module Data.TrieVector
 , empty
 , singleton
 , fromList
-, size
 , snoc
 , lookup
 , update
@@ -13,21 +12,27 @@ module Data.TrieVector
 
 import Data.Bits
 import Data.Foldable (foldl', toList)
-import Data.Vector((!), (//))
+import Data.Vector((!))
 import qualified Data.Vector as V
-import Prelude hiding (lookup, map)
+import qualified Data.Vector.Mutable as M
+import Prelude hiding (lookup, map, tail)
 
 -- An Array Mapped Trie.
 data Tree a = Internal !(V.Vector (Tree a))
             | Leaf !(V.Vector a)
-            deriving Show
 data Vector a = Empty
-              | Root !Int !Int !(Tree a)  -- Root size height tree
+              | Root !Int  -- ^ size
+                     !Int  -- ^ offset
+                     !Int  -- ^ height
+                     !(Tree a)  -- ^ tree
+                     ![a]  -- ^ tail (reversed)
 
+-- | The number of bits used per level.
 bits :: Int
-bits = 4
+bits = 5
 {-# INLINE bits #-}
 
+-- | The mask used to extract the index into the array.
 mask :: Int
 mask = (1 `shiftL` bits) - 1
 {-# INLINE mask #-}
@@ -36,15 +41,23 @@ mask = (1 `shiftL` bits) - 1
 instance Show a => Show (Vector a) where
     show v = "fromList " ++ show (toList v)
 
-instance Foldable Vector where
-    foldMap _ Empty = mempty
-    foldMap f (Root _ _ t) = foldMapTree t
-      where
-        foldMapTree (Internal v) = foldMap foldMapTree v
-        foldMapTree (Leaf v) = foldMap f v
+instance Semigroup (Vector a) where
+    (<>) = append
+    {-# INLINE (<>) #-}
 
-    length = size
-    {-# INLINE length #-}
+instance Monoid (Vector a) where
+    mempty = empty
+    {-# INLINE mempty #-}
+
+instance Foldable Vector where
+    foldr _ acc Empty = acc
+    foldr f acc (Root _ _ _ tree tail) = foldrTree tree (foldr f acc (reverse tail))
+      where
+        foldrTree (Internal v) acc = foldr foldrTree acc v
+        foldrTree (Leaf v) acc = foldr f acc v
+
+    length Empty = 0
+    length (Root s _ _ _ _) = s
 
 instance Functor Vector where
     fmap = map
@@ -52,69 +65,78 @@ instance Functor Vector where
 
 instance Traversable Vector where
     traverse _ Empty = pure Empty
-    traverse f (Root s h t) = Root s h <$> traverseTree t
+    traverse f (Root s offset h tree tail) = Root s offset h <$> traverseTree tree <*> (reverse <$> traverse f (reverse tail))
       where
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
 
+-- | /O(1)/. The empty vector.
 empty :: Vector a
 empty = Empty
 {-# INLINE empty #-}
 
+-- | /O(1)/. A singleton vector.
 singleton :: a -> Vector a
-singleton x = Root 1 1 (Leaf $ V.singleton x)
+singleton x = Root 1 0 0 (Leaf V.empty) [x]
 
 fromList :: [a] -> Vector a
 fromList = foldl' snoc empty
 
-size :: Vector a -> Int
-size Empty = 0
-size (Root s _ _) = s
-
 snoc :: Vector a -> a -> Vector a
 snoc Empty x = singleton x
-snoc (Root s h t) x
-    | s == 1 `shiftL` (bits * h) = Root (s + 1) (h + 1) (Internal $ V.fromList [t, newPath h])
-    | otherwise = Root (s + 1) h (insertTree (bits * (h - 1)) t)
+snoc (Root s offset h tree tail) x
+    | s .&. mask /= 0 = Root (s + 1) offset h tree (x : tail)
+    | offset == 0 = Root (s + 1) s (h + 1) (Leaf $ V.fromList (reverse tail)) [x]
+    | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) [x]
+    | otherwise = Root (s + 1) s h (insertTail (bits * (h - 1)) tree) [x]
   where
-    newPath 1 = Leaf $ V.singleton x
-    newPath h = Internal $ V.singleton (newPath (h - 1)) 
+    newPath 1 = Leaf $ V.fromList (reverse tail)
+    newPath h = Internal $ V.singleton (newPath (h - 1))
 
-    insertTree sh (Internal v)
-        | index < V.length v = Internal $ v // [(index, insertTree (sh - bits) (v ! index))]
+    insertTail sh (Internal v)
+        | index < V.length v = Internal $ V.modify (\v -> M.modify v (insertTail (sh - bits)) index) v
         | otherwise = Internal $ V.snoc v (newPath (sh `div` bits))
       where
-        index = s `shiftR` sh .&. mask
-    insertTree _ (Leaf v) = Leaf $ V.snoc v x 
+        index = offset `shiftR` sh .&. mask
+    insertTail _ (Leaf _) = Leaf $ V.fromList (reverse tail)
 
 lookup :: Int -> Vector a -> Maybe a
 lookup _ Empty = Nothing
-lookup i (Root s h t)
+lookup i (Root s offset h tree tail)
     | i < 0 || i >= s = Nothing
-    | otherwise = Just $ lookupTree (bits * (h - 1)) t
+    | i < offset = Just $ lookupTree (bits * (h - 1)) tree
+    | otherwise = Just $ tail !! (s - i - 1)
   where
     lookupTree sh (Internal v) = lookupTree (sh - bits) (v ! (i `shiftR` sh .&. mask))
     lookupTree _ (Leaf v) = v ! (i .&. mask)
 
 update :: Int -> a -> Vector a -> Vector a
 update i x = adjust i (const x)
+{-# INLINE update #-}
 
 adjust :: Int -> (a -> a) -> Vector a -> Vector a
 adjust _ _ Empty = Empty
-adjust i f (Root s h t)
-    | i < 0 || i >= s = Root s h t
-    | otherwise = Root s h (adjustTree (bits * (h - 1)) t)
+adjust i f root@(Root s offset h tree tail)
+    | i < 0 || i >= s = root
+    | i < offset = Root s offset h (adjustTree (bits * (h - 1)) tree) tail
+    | otherwise = let (l, x : r) = splitAt (s - i - 1) tail in Root s offset h tree (l ++ (f x : r))
   where
     adjustTree sh (Internal v) =
         let index = i `shiftR` sh .&. mask
-        in Internal $ v // [(index, adjustTree (sh - bits) (v ! index))]
+        in Internal $ V.modify (\v -> M.modify v (adjustTree (sh - bits)) index) v
     adjustTree _ (Leaf v) =
         let index = i .&. mask
-        in Leaf $ v // [(index, f (v ! index))]
+        in Leaf $ V.modify (\v -> M.modify v f index) v
 
+-- | /O(n)/.
 map :: (a -> b) -> Vector a -> Vector b
 map _ Empty = Empty
-map f (Root s h t) = Root s h (mapTree t)
+map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
   where
     mapTree (Internal v) = Internal (fmap mapTree v)
     mapTree (Leaf v) = Leaf (fmap f v)
+
+append :: Vector a -> Vector a -> Vector a
+append Empty v = v
+append v Empty = v
+append v1 v2 = foldl' snoc v1 v2
