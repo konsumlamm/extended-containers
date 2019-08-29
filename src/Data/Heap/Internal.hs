@@ -84,10 +84,15 @@ empty = Leaf
 -- | /O(1)/.
 singleton :: a -> Heap a
 singleton x = Node 1 1 x Leaf Leaf
+{-# INLINE singleton #-}
 
--- | /O(n * log n)/.
 fromList :: Ord a => [a] -> Heap a
-fromList = foldl' (flip insert) empty
+fromList ls = fromList' (fmap singleton ls) []
+  where
+    fromList' [] [] = empty
+    fromList' [x] [] = x
+    fromList' (x1 : x2 : xs) ys = fromList' xs (union x1 x2 : ys)
+    fromList' xs ys = fromList' (xs ++ reverse ys) []
 
 -- | /O(n)/. The precondition is not checked.
 fromAscList :: Ord a => [a] -> Heap a

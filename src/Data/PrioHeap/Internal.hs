@@ -111,6 +111,7 @@ empty = Leaf
 -- | /O(1)/.
 singleton :: k -> a -> PrioHeap k a
 singleton k x = Node 1 1 k x Leaf Leaf
+{-# INLINE singleton #-}
 
 -- | /O(n)/.
 fromHeap :: (k -> a) -> Heap.Heap k -> PrioHeap k a
@@ -118,9 +119,13 @@ fromHeap _ Heap.Leaf = Leaf
 fromHeap f (Heap.Node s r x left right) = Node s r x (f x) (fromHeap f left) (fromHeap f right)
 
 
--- | /O(n * log n)/.
 fromList :: Ord k => [(k, a)] -> PrioHeap k a
-fromList = foldl' (\acc (key, x) -> insert key x acc) empty
+fromList ls = fromList' (fmap (uncurry singleton) ls) []
+  where
+    fromList' [] [] = empty
+    fromList' [x] [] = x
+    fromList' (x1 : x2 : xs) ys = fromList' xs (union x1 x2 : ys)
+    fromList' xs ys = fromList' (xs ++ reverse ys) []
 
 -- | /O(n)/. The precondition is not checked.
 fromAscList :: Ord k => [(k, a)] -> PrioHeap k a
@@ -154,14 +159,14 @@ map f = mapWithKey (const f)
 -- | /O(n)/.
 mapWithKey :: (k -> a -> b) -> PrioHeap k a -> PrioHeap k b
 mapWithKey _ Leaf = Leaf
-mapWithKey f (Node size rank key x left right) =
-    Node size rank key (f key x) (mapWithKey f left) (mapWithKey f right)
+mapWithKey f (Node s r key x left right) =
+    Node s r key (f key x) (mapWithKey f left) (mapWithKey f right)
 
 -- | /O(n)/.
 traverseWithKey :: Applicative t => (k -> a -> t b) -> PrioHeap k a -> t (PrioHeap k b)
 traverseWithKey _ Leaf = pure Leaf
-traverseWithKey f (Node size rank key x left right) =
-    Node size rank key <$> f key x <*> traverseWithKey f left <*> traverseWithKey f right
+traverseWithKey f (Node s r key x left right) =
+    Node s r key <$> f key x <*> traverseWithKey f left <*> traverseWithKey f right
 
 filter :: Ord k => (a -> Bool) -> PrioHeap k a -> PrioHeap k a
 filter f = filterWithKey (const f)
@@ -239,8 +244,8 @@ size (Node s _ _ _ _ _) = s
 -- | /O(1)/.
 adjustMin :: (a -> a) -> PrioHeap k a -> PrioHeap k a
 adjustMin _ Leaf = Leaf
-adjustMin f (Node size rank key x left right) =
-    Node size rank key (f x) left right
+adjustMin f (Node s r key x left right) =
+    Node s r key (f x) left right
 
 -- | /O(1)/.
 lookupMin :: PrioHeap k a -> Maybe (k, a)
@@ -271,9 +276,9 @@ updateMin f = updateMinWithKey (const f)
 -- | /O(log n)/.
 updateMinWithKey :: Ord k => (k -> a -> Maybe a) -> PrioHeap k a -> PrioHeap k a
 updateMinWithKey _ Leaf = Leaf
-updateMinWithKey f (Node size rank key x left right) = case f key x of
+updateMinWithKey f (Node s r key x left right) = case f key x of
     Nothing -> union left right
-    Just x' -> Node size rank key x' left right
+    Just x' -> Node s r key x' left right
 
 -- | /O(log n)/.
 minView :: Ord k => PrioHeap k a -> Maybe ((k, a), PrioHeap k a)
