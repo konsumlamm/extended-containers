@@ -29,7 +29,7 @@ data Vector a = Empty
 
 -- | The number of bits used per level.
 bits :: Int
-bits = 5
+bits = 4
 {-# INLINE bits #-}
 
 -- | The mask used to extract the index into the array.
