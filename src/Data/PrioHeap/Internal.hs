@@ -119,6 +119,7 @@ fromHeap _ Heap.Leaf = Leaf
 fromHeap f (Heap.Node s r x left right) = Node s r x (f x) (fromHeap f left) (fromHeap f right)
 
 
+-- | /O(n)/.
 fromList :: Ord k => [(k, a)] -> PrioHeap k a
 fromList ls = fromList' (fmap (uncurry singleton) ls) []
   where
@@ -312,3 +313,4 @@ toDescList = go []
   where
     go acc Leaf = acc
     go acc (Node _ _ key x left right) = go ((key, x) : acc) (union left right)
+{-# INLINE toDescList #-}

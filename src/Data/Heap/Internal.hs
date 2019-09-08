@@ -86,6 +86,7 @@ singleton :: a -> Heap a
 singleton x = Node 1 1 x Leaf Leaf
 {-# INLINE singleton #-}
 
+-- | /O(n)/.
 fromList :: Ord a => [a] -> Heap a
 fromList ls = fromList' (fmap singleton ls) []
   where
@@ -192,3 +193,4 @@ toDescList = go []
   where
     go acc Leaf = acc
     go acc (Node _ _ x left right) = go (x : acc) (union left right)
+{-# INLINE toDescList #-}
