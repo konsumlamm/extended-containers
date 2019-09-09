@@ -1,3 +1,5 @@
+-- | A Leftist Heap.
+
 module Data.Heap.Internal
 ( Heap(..)
 -- * Construction
@@ -34,7 +36,6 @@ module Data.Heap.Internal
 import Prelude hiding (filter, map)
 import Data.Foldable (foldl', toList)
 
--- A Leftist Heap.
 type Size = Int
 type Rank = Int
 data Heap a = Leaf | Node !Size !Rank !a !(Heap a) !(Heap a)
@@ -76,17 +77,17 @@ instance Foldable Heap where
     {-# INLINE minimum #-}
 
 
--- | /O(1)/.
+-- | /O(1)/. The empty heap.
 empty :: Heap a
 empty = Leaf
 {-# INLINE empty #-}
 
--- | /O(1)/.
+-- | /O(1)/. A singleton heap.
 singleton :: a -> Heap a
 singleton x = Node 1 1 x Leaf Leaf
 {-# INLINE singleton #-}
 
--- | /O(n)/.
+-- | /O(n)/. Create a heap from a finite list.
 fromList :: Ord a => [a] -> Heap a
 fromList ls = fromList' (fmap singleton ls) []
   where
@@ -95,15 +96,15 @@ fromList ls = fromList' (fmap singleton ls) []
     fromList' (x1 : x2 : xs) ys = fromList' xs (union x1 x2 : ys)
     fromList' xs ys = fromList' (xs ++ reverse ys) []
 
--- | /O(n)/. The precondition is not checked.
+-- | /O(n)/. Create a heap from a finite ascending list. The precondition is not checked.
 fromAscList :: Ord a => [a] -> Heap a
 fromAscList = foldr (\x acc -> node x acc empty) empty
 
--- | /O(n)/. The precondition is not checked.
+-- | /O(n)/. Create a heap from a finite descending list. The precondition is not checked.
 fromDescList :: Ord a => [a] -> Heap a
 fromDescList = foldl' (\acc x -> node x acc empty) empty
 
--- | /O(log n)/.
+-- | /O(log n)/. Insert a new element into the heap.
 insert :: Ord a => a -> Heap a -> Heap a
 insert = union . singleton
 
@@ -119,14 +120,16 @@ unions :: (Foldable f, Ord a) => f (Heap a) -> Heap a
 unions = foldl' union empty
 
 
+-- | /O(n * log n)/.
 map :: (Ord a, Ord b) => (a -> b) -> Heap a -> Heap b
 map f = fromList . fmap f . toAscList  -- TEMP
 
--- | /O(n)/. It is assumed that f is increasing. The precondition is not checked.
+-- | /O(n)/. Map an increasing function over the heap. The precondition is not checked.
 mapMonotonic :: (a -> b) -> Heap a -> Heap b
 mapMonotonic _ Leaf = Leaf
 mapMonotonic f (Node s r x left right) = Node s r (f x) (mapMonotonic f left) (mapMonotonic f right)
 
+-- | Filter the elements for which the predicate is true.
 filter :: Ord a => (a -> Bool) -> Heap a -> Heap a
 filter _ Leaf = Leaf
 filter f (Node _ _ x left right)
@@ -143,6 +146,7 @@ partition f (Node _ _ x left right)
     (r1, r2) = partition f right
 
 
+-- | /O(n)/. Test wether or not the element is in the heap.
 member :: Ord a => a -> Heap a -> Bool
 member _ Leaf = False
 member x (Node _ _ y left right)
@@ -150,7 +154,7 @@ member x (Node _ _ y left right)
     | x < y = False
     | otherwise = member x left || member x right
 
--- | /O(1)/.
+-- | /O(1)/. The number of elements in the heap.
 size :: Heap a -> Size
 size Leaf = 0
 size (Node s _ _ _ _) = s
@@ -161,13 +165,13 @@ lookupMin :: Heap a -> Maybe a
 lookupMin Leaf = Nothing
 lookupMin (Node _ _ x _ _) = Just x
 
--- | /O(1)/.
+-- | /O(1)/. The minimum element in the heap. Errors if no such element exists.
 findMin :: Heap a -> a
 findMin heap = case lookupMin heap of
     Nothing -> errorEmpty "findMin"
     Just x -> x
 
--- | /O(log n)/.
+-- | /O(log n)/. A new heap with the minimum deleted or the empty heap if it already was empty
 deleteMin :: Ord a => Heap a -> Heap a
 deleteMin Leaf = Leaf
 deleteMin (Node _ _ _ left right) = union left right
@@ -184,10 +188,12 @@ minView Leaf = Nothing
 minView (Node _ _ x left right) = Just (x, union left right)
 
 
+-- | /O(n * log n)/. Create an ascending list from the heap.
 toAscList :: Ord a => Heap a -> [a]
 toAscList Leaf = []
 toAscList (Node _ _ x left right) = x : toAscList (union left right)
 
+-- | /O(n * log n)/. Create a descending list from the heap.
 toDescList :: Ord a => Heap a -> [a]
 toDescList = go []
   where
