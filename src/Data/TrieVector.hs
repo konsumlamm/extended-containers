@@ -1,4 +1,7 @@
 {-# LANGUAGE OverloadedLists #-}
+{-# LANGUAGE TypeFamilies #-}
+
+-- | An Array Mapped Trie.
 
 module Data.TrieVector
 ( Vector
@@ -6,6 +9,7 @@ module Data.TrieVector
 , singleton
 , fromList
 , snoc
+, last
 , lookup
 , (!?)
 , update
@@ -20,9 +24,9 @@ import qualified Data.List.NonEmpty as L
 import Data.Vector ((!))
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
-import Prelude hiding ((!!), lookup, map, tail)
+import qualified GHC.Exts as Exts
+import Prelude hiding ((!!), last, lookup, map, tail)
 
--- An Array Mapped Trie.
 data Tree a = Internal !(V.Vector (Tree a))
             | Leaf !(V.Vector a)
 data Vector a = Empty
@@ -74,6 +78,11 @@ instance Traversable Vector where
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
 
+instance Exts.IsList (Vector a) where
+    type Item (Vector a) = a
+    fromList = fromList
+    toList = toList
+
 
 -- | /O(1)/. The empty vector.
 empty :: Vector a
@@ -84,9 +93,11 @@ empty = Empty
 singleton :: a -> Vector a
 singleton x = Root 1 0 0 (Leaf V.empty) [x]
 
+-- | Create a new vector from a finite list.
 fromList :: [a] -> Vector a
 fromList = foldl' snoc empty
 
+-- | Add an element to the right end of the vector.
 snoc :: Vector a -> a -> Vector a
 snoc Empty x = singleton x
 snoc (Root s offset h tree tail) x
@@ -104,24 +115,12 @@ snoc (Root s offset h tree tail) x
       where
         index = offset `shiftR` sh .&. mask
     insertTail _ (Leaf _) = Leaf $ V.fromList (toList $ L.reverse tail)
-{-
-unsnoc :: Vector a -> Maybe (Vector a, a)
-unsnoc Empty = Nothing
-unsnoc (Root s offset h tree (x :| tail))
-    | s == 1 = Just (Empty, x)
-    | (s - 1) .&. mask /= 0 = Just (Root (s - 1) offset h tree (L.fromList tail), x)
-    | () =
-        let Internal v = tree
-        in Just (Root (s - 1) ??? (h - 1) (V.head v) (L.fromList $ toList (lastLeaf tree)), x)
-    | otherwise = Just (Root (s - 1) ??? h (removeTail tree) (L.fromList $ toList (lastLeaf tree)), x)
-  where
-    lastLeaf (Internal v) = lastLeaf (V.last v)
-    lastLeaf (Leaf v) = Leaf v
 
-    removeTail (Internal v)
-        | V.
-    removeTail (Leaf _) = Leaf V.empty
--}
+-- | /O(1)/. The last element in the vector.
+last :: Vector a -> Maybe a
+last Empty = Nothing
+last (Root _ _ _ _ (x :| _)) = Just x
+
 lookup :: Int -> Vector a -> Maybe a
 lookup _ Empty = Nothing
 lookup i (Root s offset h tree tail)
@@ -132,6 +131,7 @@ lookup i (Root s offset h tree tail)
     lookupTree sh (Internal v) = lookupTree (sh - bits) (v ! (i `shiftR` sh .&. mask))
     lookupTree _ (Leaf v) = v ! (i .&. mask)
 
+-- | Flipped version of lookup.
 (!?) :: Vector a -> Int -> Maybe a
 (!?) = flip lookup
 
@@ -153,7 +153,7 @@ adjust i f root@(Root s offset h tree tail)
         let index = i .&. mask
         in Leaf $ V.modify (\v -> M.modify v f index) v
 
--- | /O(n)/.
+-- | /O(n)/. Map a function over the vector.
 map :: (a -> b) -> Vector a -> Vector b
 map _ Empty = Empty
 map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
@@ -161,6 +161,7 @@ map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
     mapTree (Internal v) = Internal (fmap mapTree v)
     mapTree (Leaf v) = Leaf (fmap f v)
 
+-- | Concatenate two vectors.
 append :: Vector a -> Vector a -> Vector a
 append Empty v = v
 append v Empty = v
