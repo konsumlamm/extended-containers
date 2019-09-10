@@ -1,5 +1,3 @@
--- | A Leftist Heap with associated priorities.
-
 module Data.PrioHeap.Internal
 ( PrioHeap(..)
 -- * Construction
@@ -37,6 +35,7 @@ module Data.PrioHeap.Internal
 , size
 -- * Min
 , adjustMin
+, adjustMinWithKey
 , lookupMin
 , findMin
 , deleteMin
@@ -47,7 +46,7 @@ module Data.PrioHeap.Internal
 -- * Conversion
 , keysHeap
 -- ** To Lists
-, elems
+, values
 , keys
 , toList
 , toAscList
@@ -61,6 +60,7 @@ import qualified Data.Heap.Internal as Heap
 
 type Size = Int
 type Rank = Int
+-- | A Leftist Heap with associated priorities.
 data PrioHeap k a = Leaf | Node !Size !Rank !k a !(PrioHeap k a) !(PrioHeap k a)
 
 node :: k -> a -> PrioHeap k a -> PrioHeap k a -> PrioHeap k a
@@ -86,6 +86,7 @@ instance Functor (PrioHeap k) where
     fmap = map
     {-# INLINE fmap #-}
 
+-- | Folds in an unspecified order.
 instance Foldable (PrioHeap k) where
     foldMap _ Leaf = mempty
     foldMap f (Node _ _ _ x left right) =
@@ -100,6 +101,7 @@ instance Foldable (PrioHeap k) where
     minimum = snd . findMin
     {-# INLINE minimum #-}
 
+-- | Traverses in an unspecified order.
 instance Traversable (PrioHeap k) where
     traverse f = traverseWithKey (const f)
 
@@ -109,18 +111,18 @@ empty :: PrioHeap k a
 empty = Leaf
 {-# INLINE empty #-}
 
--- | /O(1)/. A singleton heap.
+-- | /O(1)/. A heap with a single element.
 singleton :: k -> a -> PrioHeap k a
 singleton k x = Node 1 1 k x Leaf Leaf
 {-# INLINE singleton #-}
 
--- | /O(n)/. Create a heap from a heap.
+-- | /O(n)/. Create a heap from a 'Heap' of keys and a function which computes the value for each key.
 fromHeap :: (k -> a) -> Heap.Heap k -> PrioHeap k a
 fromHeap _ Heap.Leaf = Leaf
 fromHeap f (Heap.Node s r x left right) = Node s r x (f x) (fromHeap f left) (fromHeap f right)
 
 
--- | /O(n)/. Create a heap from a list.
+-- | /O(n)/. Create a heap from a list of key/value pairs.
 fromList :: Ord k => [(k, a)] -> PrioHeap k a
 fromList ls = fromList' (fmap (uncurry singleton) ls) []
   where
@@ -129,20 +131,22 @@ fromList ls = fromList' (fmap (uncurry singleton) ls) []
     fromList' (x1 : x2 : xs) ys = fromList' xs (union x1 x2 : ys)
     fromList' xs ys = fromList' (xs ++ reverse ys) []
 
--- | /O(n)/. Create a heap from an ascending list. The precondition is not checked.
-fromAscList :: Ord k => [(k, a)] -> PrioHeap k a
+-- | /O(n)/. Create a heap from an ascending list.
+-- The precondition (list is ascending) is not checked.
+fromAscList :: [(k, a)] -> PrioHeap k a
 fromAscList = foldr (\(key, x) acc -> node key x acc empty) empty
 
--- | /O(n)/. Create a heap from a decreasing list. The precondition is not checked.
-fromDescList :: Ord k => [(k, a)] -> PrioHeap k a
+-- | /O(n)/. Create a heap from a decreasing list.
+-- The precondition (list is descending) is not checked.
+fromDescList :: [(k, a)] -> PrioHeap k a
 fromDescList = foldl' (\acc (key, x) -> node key x acc empty) empty
 
 
--- | /O(log n)/. Insert a new element into the heap.
+-- | /O(log n)/. Insert a new key and value into the heap.
 insert :: Ord k => k -> a -> PrioHeap k a -> PrioHeap k a
 insert key x = union (singleton key x)
 
--- | /O(log n)/.
+-- | The union of two heaps.
 union :: Ord k => PrioHeap k a -> PrioHeap k a -> PrioHeap k a
 union Leaf heap = heap
 union heap Leaf = heap
@@ -150,6 +154,9 @@ union heap1@(Node _ _ key1 x1 left1 right1) heap2@(Node _ _ key2 x2 left2 right2
     | key1 <= key2 = node key1 x1 left1 (union right1 heap2)
     | otherwise = node key2 x2 left2 (union right2 heap1)
 
+-- | The union of a foldable of heaps.
+--
+-- > unions = foldl union empty
 unions :: (Foldable f, Ord k) => f (PrioHeap k a) -> PrioHeap k a
 unions = foldl' union empty
 
@@ -158,30 +165,36 @@ unions = foldl' union empty
 map :: (a -> b) -> PrioHeap k a -> PrioHeap k b
 map f = mapWithKey (const f)
 
--- | /O(n)/.
+-- | /O(n)/. Map a function that has access to the key associated with a value over the heap.
 mapWithKey :: (k -> a -> b) -> PrioHeap k a -> PrioHeap k b
 mapWithKey _ Leaf = Leaf
 mapWithKey f (Node s r key x left right) =
     Node s r key (f key x) (mapWithKey f left) (mapWithKey f right)
 
--- | /O(n)/.
+-- | /O(n)/. Traverse the heap with a function that has access to the key associated with a value.
 traverseWithKey :: Applicative t => (k -> a -> t b) -> PrioHeap k a -> t (PrioHeap k b)
 traverseWithKey _ Leaf = pure Leaf
 traverseWithKey f (Node s r key x left right) =
     Node s r key <$> f key x <*> traverseWithKey f left <*> traverseWithKey f right
 
+-- | Filter all elements that satisfy the predicate.
 filter :: Ord k => (a -> Bool) -> PrioHeap k a -> PrioHeap k a
 filter f = filterWithKey (const f)
 
+-- | Filter all elements that satisfy the predicate.
 filterWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> PrioHeap k a
 filterWithKey _ Leaf = Leaf
 filterWithKey f (Node _ _ key x left right)
     | f key x = node key x (filterWithKey f left) (filterWithKey f right)
     | otherwise = union (filterWithKey f left) (filterWithKey f right)
 
+-- | Partition the heap into two heaps, one with all elements that satisfy the predicate
+-- and one with all elements that don't satisfy the predicate.
 partition :: Ord k => (a -> Bool) -> PrioHeap k a -> (PrioHeap k a, PrioHeap k a)
 partition f = partitionWithKey (const f)
 
+-- | Partition the heap into two heaps, one with all elements that satisfy the predicate
+-- and one with all elements that don't satisfy the predicate.
 partitionWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> (PrioHeap k a, PrioHeap k a)
 partitionWithKey _ Leaf = (Leaf, Leaf)
 partitionWithKey f (Node _ _ key x left right)
@@ -191,18 +204,22 @@ partitionWithKey f (Node _ _ key x left right)
     (l1, l2) = partitionWithKey f left
     (r1, r2) = partitionWithKey f right
 
+-- | Map and collect the 'Just' results.
 mapMaybe :: Ord k => (a -> Maybe b) -> PrioHeap k a -> PrioHeap k b
 mapMaybe f = mapMaybeWithKey (const f)
 
+-- | Map and collect the 'Just' results.
 mapMaybeWithKey :: Ord k => (k -> a -> Maybe b) -> PrioHeap k a -> PrioHeap k b
 mapMaybeWithKey _ Leaf = Leaf
 mapMaybeWithKey f (Node _ _ key x left right) = case f key x of
     Nothing -> union (mapMaybeWithKey f left) (mapMaybeWithKey f right)
     Just x' -> node key x' (mapMaybeWithKey f left) (mapMaybeWithKey f right)
 
+-- | Map and separate the 'Left' and 'Right' results.
 mapEither :: Ord k => (a -> Either b c) -> PrioHeap k a -> (PrioHeap k b, PrioHeap k c)
 mapEither f = mapEitherWithKey (const f)
 
+-- | Map and separate the 'Left' and 'Right' results.
 mapEitherWithKey :: Ord k => (k -> a -> Either b c) -> PrioHeap k a -> (PrioHeap k b, PrioHeap k c)
 mapEitherWithKey _ Leaf = (Leaf, Leaf)
 mapEitherWithKey f (Node _ _ key x left right) = case f key x of
@@ -212,29 +229,32 @@ mapEitherWithKey f (Node _ _ key x left right) = case f key x of
     (l1, l2) = mapEitherWithKey f left
     (r1, r2) = mapEitherWithKey f right
 
--- | /O(n)/.
+-- | /O(n)/. Fold the keys and values in the heap using the given monoid.
 foldMapWithKey :: Monoid m => (k -> a -> m) -> PrioHeap k a -> m
 foldMapWithKey _ Leaf = mempty
 foldMapWithKey f (Node _ _ key x left right) =
     f key x <> foldMapWithKey f left <> foldMapWithKey f right
 
--- | /O(n)/. REDO!
+-- | /O(n)/. Fold the keys and values in the heap using the given left-associative function. REDO!
 foldlWithKey :: (b -> k -> a -> b) -> b -> PrioHeap k a -> b
 foldlWithKey f acc = foldl (\a (key, x) -> f a key x) acc . toList
 
--- | /O(n)/. REDO!
+-- | /O(n)/. Fold the keys and values in the heap using the given right-associative function. REDO!
 foldrWithKey :: (k -> a -> b -> b) -> b -> PrioHeap k a -> b
 foldrWithKey f acc = foldr (\(key, x) a -> f key x a) acc . toList
 
--- | /O(n)/. REDO!
+-- | /O(n)/. A strict version of 'foldlWithKey'.
+-- Each application of the function is evaluated before using the result in the next application. REDO!
 foldlWithKey' :: (b -> k -> a -> b) -> b -> PrioHeap k a -> b
 foldlWithKey' f acc = foldl' (\a (key, x) -> f a key x) acc . toList
 
--- | /O(n)/. REDO!
+-- | /O(n)/. A strict version of 'foldrWithKey'.
+-- Each application of the function is evaluated before using the result in the next application. REDO!
 foldrWithKey' :: (k -> a -> b -> b) -> b -> PrioHeap k a -> b
 foldrWithKey' f acc = foldr' (\(key, x) a -> f key x a) acc . toList
 
 
+-- | /O(n)/. Is the key in the heap?
 member :: Ord k => k -> PrioHeap k a -> Bool
 member _ Leaf = False
 member kx (Node _ _ ky _ left right)
@@ -248,46 +268,52 @@ size Leaf = 0
 size (Node s _ _ _ _ _) = s
 
 
--- | /O(1)/.
+-- | /O(1)/. Adjust the value at the minimal key.
 adjustMin :: (a -> a) -> PrioHeap k a -> PrioHeap k a
-adjustMin _ Leaf = Leaf
-adjustMin f (Node s r key x left right) =
-    Node s r key (f x) left right
+adjustMin f = adjustMinWithKey (const f)
 
--- | /O(1)/.
+-- | /O(1)/. Adjust the value at the minimal key.
+adjustMinWithKey :: (k -> a -> a) -> PrioHeap k a -> PrioHeap k a
+adjustMinWithKey _ Leaf = Leaf
+adjustMinWithKey f (Node s r key x left right) =
+    Node s r key (f key x) left right
+
+-- | /O(1)/. The minimal element of the heap or 'Nothing' if the heap is empty. 
 lookupMin :: PrioHeap k a -> Maybe (k, a)
 lookupMin Leaf = Nothing
 lookupMin (Node _ _ key x _ _) = Just (key, x)
 
--- | /O(1)/.
+-- | /O(1)/. The minimal element of the heap. Calls 'error' if the heap is empty.
 findMin :: PrioHeap k a -> (k, a)
 findMin heap = case lookupMin heap of
     Nothing -> errorEmpty "findMin"
     Just res -> res
 
--- | /O(log n)/.
+-- | /O(log n)/. Delete the minimal element. Returns the empty heap if the heap is empty.
 deleteMin :: Ord k => PrioHeap k a -> PrioHeap k a
 deleteMin Leaf = empty
 deleteMin (Node _ _ _ _ left right) = union left right
 
--- | /O(log n)/.
+-- | /O(log n)/. Delete and find the minimal element.
+--
+-- > deleteFindMin heap = (findMin heap, deleteMin heap)
 deleteFindMin :: Ord k => PrioHeap k a -> ((k, a), PrioHeap k a)
 deleteFindMin heap = case minView heap of
     Nothing -> errorEmpty "deleteFindMin"
     Just res -> res
 
--- | /O(log n)/.
+-- | /O(log n)/. Update the value at the minimal key.
 updateMin :: Ord k => (a -> Maybe a) -> PrioHeap k a -> PrioHeap k a
 updateMin f = updateMinWithKey (const f)
 
--- | /O(log n)/.
+-- | /O(log n)/. Update the value at the minimal key.
 updateMinWithKey :: Ord k => (k -> a -> Maybe a) -> PrioHeap k a -> PrioHeap k a
 updateMinWithKey _ Leaf = Leaf
 updateMinWithKey f (Node s r key x left right) = case f key x of
     Nothing -> union left right
     Just x' -> Node s r key x' left right
 
--- | /O(log n)/.
+-- | /O(log n)/. Retrieves the minimal key/value pair of the heap and the heap stripped of that element or 'Nothing' if the heap is empty.
 minView :: Ord k => PrioHeap k a -> Maybe ((k, a), PrioHeap k a)
 minView Leaf = Nothing
 minView (Node _ _ key x left right) = Just ((key, x), union left right)
@@ -296,29 +322,30 @@ minView (Node _ _ key x left right) = Just ((key, x), union left right)
 -- take, drop, splitAt?
 
 
+-- | Create a 'Heap' of all keys of the heap
 keysHeap :: PrioHeap k a -> Heap.Heap k
 keysHeap Leaf = Heap.Leaf
 keysHeap (Node s r key _ left right) = Heap.Node s r key (keysHeap left) (keysHeap right)
 
 
--- | /O(n)/.
-elems :: PrioHeap k a -> [a]
-elems = foldr (:) []
+-- | /O(n)/. The values of the heap in an unspecified order.
+values :: PrioHeap k a -> [a]
+values = foldr (:) []
 
--- | /O(n)/.
+-- | /O(n)/. The keys of the heap in an unspecified order.
 keys :: PrioHeap k a -> [k]
 keys = foldrWithKey (\key _ acc -> key : acc) []
 
--- | /O(n)/. Create a list from the heap. DOESN'T WORK (RECURSION)!
+-- | /O(n)/. Create a list of key/value pairs from the heap. DOESN'T WORK (RECURSION)!
 toList :: PrioHeap k a -> [(k, a)]
 toList = foldrWithKey (\key x acc -> (key, x) : acc) []
 
--- | /O(n * log n)/. Create an ascending list from the heap.
+-- | /O(n * log n)/. Create an ascending list of key/value pairs from the heap.
 toAscList :: Ord k => PrioHeap k a -> [(k, a)]
 toAscList Leaf = []
 toAscList (Node _ _ key x left right) = (key, x) : toAscList (union left right)
 
--- | /O(n * log n)/. Create a descending list from the heap.
+-- | /O(n * log n)/. Create a descending list of key/value pairs from the heap.
 toDescList :: Ord k => PrioHeap k a -> [(k, a)]
 toDescList = go []
   where

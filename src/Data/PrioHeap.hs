@@ -35,6 +35,7 @@ module Data.PrioHeap
 , size
 -- * Min
 , adjustMin
+, adjustMinWithKey
 , lookupMin
 , findMin
 , deleteMin
@@ -45,7 +46,7 @@ module Data.PrioHeap
 -- * Conversion
 , keysHeap
 -- ** To Lists
-, elems
+, values
 , keys
 , toList
 , toAscList
