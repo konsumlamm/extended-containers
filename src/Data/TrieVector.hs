@@ -1,8 +1,6 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | An Array Mapped Trie.
-
 module Data.TrieVector
 ( Vector
 , empty
@@ -29,6 +27,7 @@ import Prelude hiding ((!!), last, lookup, map, tail)
 
 data Tree a = Internal !(V.Vector (Tree a))
             | Leaf !(V.Vector a)
+-- | An Array Mapped Trie.
 data Vector a = Empty
               | Root !Int  -- size
                      !Int  -- offset
@@ -36,12 +35,12 @@ data Vector a = Empty
                      !(Tree a)  -- tree
                      !(NonEmpty a)  -- tail (reversed)
 
--- | The number of bits used per level.
+-- The number of bits used per level.
 bits :: Int
 bits = 4
 {-# INLINE bits #-}
 
--- | The mask used to extract the index into the array.
+-- The mask used to extract the index into the array.
 mask :: Int
 mask = (1 `shiftL` bits) - 1
 
@@ -73,7 +72,8 @@ instance Functor Vector where
 
 instance Traversable Vector where
     traverse _ Empty = pure Empty
-    traverse f (Root s offset h tree tail) = Root s offset h <$> traverseTree tree <*> (L.reverse <$> traverse f (L.reverse tail))
+    traverse f (Root s offset h tree tail) =
+        Root s offset h <$> traverseTree tree <*> (L.reverse <$> traverse f (L.reverse tail))
       where
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
@@ -89,11 +89,11 @@ empty :: Vector a
 empty = Empty
 {-# INLINE empty #-}
 
--- | /O(1)/. A singleton vector.
+-- | /O(1)/. A vector with a single element.
 singleton :: a -> Vector a
 singleton x = Root 1 0 0 (Leaf V.empty) [x]
 
--- | Create a new vector from a finite list.
+-- | Create a new vector from a list.
 fromList :: [a] -> Vector a
 fromList = foldl' snoc empty
 
@@ -121,6 +121,7 @@ last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
 
+-- | The element at the index or 'Nothing' if the index is out of range.
 lookup :: Int -> Vector a -> Maybe a
 lookup _ Empty = Nothing
 lookup i (Root s offset h tree tail)
@@ -131,14 +132,17 @@ lookup i (Root s offset h tree tail)
     lookupTree sh (Internal v) = lookupTree (sh - bits) (v ! (i `shiftR` sh .&. mask))
     lookupTree _ (Leaf v) = v ! (i .&. mask)
 
--- | Flipped version of lookup.
+-- | Flipped version of 'lookup'.
 (!?) :: Vector a -> Int -> Maybe a
 (!?) = flip lookup
 
+-- | Update the element at the index with a new element. Returns the original vector if the index is out of range.
 update :: Int -> a -> Vector a -> Vector a
 update i x = adjust i (const x)
 {-# INLINE update #-}
 
+-- | Adjust the element at the index by applying the function to it.
+-- Returns the original vector if the index is out of range.
 adjust :: Int -> (a -> a) -> Vector a -> Vector a
 adjust _ _ Empty = Empty
 adjust i f root@(Root s offset h tree tail)
