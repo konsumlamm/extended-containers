@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE TypeFamilies #-}
 
+-- | All logarithms are base 16.
+
 module Data.TrieVector
 ( Vector
 , empty
@@ -16,7 +18,7 @@ module Data.TrieVector
 ) where
 
 import Data.Bits
-import Data.Foldable (foldl', toList)
+import Data.Foldable (foldl', length, toList)
 import Data.List.NonEmpty (NonEmpty(..), (!!), (<|))
 import qualified Data.List.NonEmpty as L
 import Data.Vector ((!))
@@ -47,6 +49,12 @@ mask = (1 `shiftL` bits) - 1
 
 instance Show a => Show (Vector a) where
     show v = "fromList " ++ show (toList v)
+
+instance Eq a => Eq (Vector a) where
+    v1 == v2 = length v1 == length v2 && toList v1 == toList v2
+
+instance Ord a => Ord (Vector a) where
+    v1 `compare` v2 = toList v1 `compare` toList v2
 
 instance Semigroup (Vector a) where
     (<>) = append
@@ -93,11 +101,11 @@ empty = Empty
 singleton :: a -> Vector a
 singleton x = Root 1 0 0 (Leaf V.empty) [x]
 
--- | Create a new vector from a list.
+-- | /O(n * log n)/. Create a new vector from a list.
 fromList :: [a] -> Vector a
 fromList = foldl' snoc empty
 
--- | Add an element to the right end of the vector.
+-- | /O(log n)/. Add an element to the right end of the vector.
 snoc :: Vector a -> a -> Vector a
 snoc Empty x = singleton x
 snoc (Root s offset h tree tail) x
@@ -121,7 +129,7 @@ last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
 
--- | The element at the index or 'Nothing' if the index is out of range.
+-- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
 lookup :: Int -> Vector a -> Maybe a
 lookup _ Empty = Nothing
 lookup i (Root s offset h tree tail)
@@ -132,16 +140,16 @@ lookup i (Root s offset h tree tail)
     lookupTree sh (Internal v) = lookupTree (sh - bits) (v ! (i `shiftR` sh .&. mask))
     lookupTree _ (Leaf v) = v ! (i .&. mask)
 
--- | Flipped version of 'lookup'.
+-- | /O(log n)/. Flipped version of 'lookup'.
 (!?) :: Vector a -> Int -> Maybe a
 (!?) = flip lookup
 
--- | Update the element at the index with a new element. Returns the original vector if the index is out of range.
+-- | /O(log n)/. Update the element at the index with a new element. Returns the original vector if the index is out of range.
 update :: Int -> a -> Vector a -> Vector a
 update i x = adjust i (const x)
 {-# INLINE update #-}
 
--- | Adjust the element at the index by applying the function to it.
+-- | /O(log n)/. Adjust the element at the index by applying the function to it.
 -- Returns the original vector if the index is out of range.
 adjust :: Int -> (a -> a) -> Vector a -> Vector a
 adjust _ _ Empty = Empty
