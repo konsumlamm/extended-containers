@@ -43,8 +43,8 @@ node :: a -> Heap a -> Heap a -> Heap a
 node x heap Leaf = Node (size heap + 1) 1 x heap Leaf
 node x Leaf heap = Node (size heap + 1) 1 x heap Leaf
 node x heap1@(Node s1 r1 _ _ _) heap2@(Node s2 r2 _ _ _)
-    | r1 >= r2 = Node (s1 + s2) (r2 + 1) x heap1 heap2
-    | otherwise = Node (s1 + s2) (r1 + 1) x heap2 heap1
+    | r1 >= r2 = Node (s1 + s2 + 1) (r2 + 1) x heap1 heap2
+    | otherwise = Node (s1 + s2 + 1) (r1 + 1) x heap2 heap1
 
 errorEmpty :: String -> a
 errorEmpty s = error $ "Heap." ++ s ++ ": empty heap"
@@ -52,6 +52,12 @@ errorEmpty s = error $ "Heap." ++ s ++ ": empty heap"
 
 instance Show a => Show (Heap a) where
     show heap = "fromList " ++ show (toList heap)
+
+instance Ord a => Eq (Heap a) where
+    heap1 == heap2 = size heap1 == size heap2 && toAscList heap1 == toAscList heap2
+
+instance Ord a => Ord (Heap a) where
+    heap1 `compare` heap2 = toAscList heap1 `compare` toAscList heap2
 
 instance Ord a => Semigroup (Heap a) where
     (<>) = union
@@ -63,9 +69,8 @@ instance Ord a => Monoid (Heap a) where
 
 -- | Folds in an unspecified order.
 instance Foldable Heap where
-    foldMap _ Leaf = mempty
-    foldMap f (Node _ _ x left right) =
-        f x <> foldMap f left <> foldMap f right
+    foldr _ acc Leaf = acc
+    foldr f acc (Node _ _ x left right) = f x (foldr f (foldr f acc right) left)
 
     null Leaf = True
     null (Node _  _ _ _ _) = False
