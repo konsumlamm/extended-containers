@@ -253,7 +253,7 @@ foldlWithKey f acc (Node _ _ key x left right) = foldlWithKey f (foldlWithKey f 
 -- | /O(n)/. Fold the keys and values in the heap using the given right-associative function.
 foldrWithKey :: (k -> a -> b -> b) -> b -> PrioHeap k a -> b
 foldrWithKey _ acc Leaf = acc
-foldrWithKey f acc (Node _ _ key x left right = f key x (foldrWithKey f (foldrWithKey f acc right) left)
+foldrWithKey f acc (Node _ _ key x left right) = f key x (foldrWithKey f (foldrWithKey f acc right) left)
 
 -- | /O(n)/. A strict version of 'foldlWithKey'.
 -- Each application of the function is evaluated before using the result in the next application. REDO!
