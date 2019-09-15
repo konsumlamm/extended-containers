@@ -17,16 +17,19 @@ module Data.TrieVector
 , map
 ) where
 
+import Control.Applicative (Alternative)
 import qualified Control.Applicative as Applicative
 import Control.Monad (MonadPlus(..))
 import Control.Monad.Fail (MonadFail(..))
 import Data.Bits
 import Data.Foldable (foldl', length, toList)
+import Data.Functor.Classes
 import Data.List.NonEmpty (NonEmpty(..), (!!), (<|))
 import qualified Data.List.NonEmpty as L
 import Data.Vector ((!))
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
+import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 import Prelude hiding ((!!), last, lookup, map, tail)
 
@@ -53,11 +56,17 @@ mask = (1 `shiftL` bits) - 1
 instance Show a => Show (Vector a) where
     show v = "fromList " ++ show (toList v)
 
+instance Eq1 Vector where
+    liftEq f v1 v2 = length v1 == length v2 && liftEq f (toList v1) (toList v2)
+
 instance Eq a => Eq (Vector a) where
-    v1 == v2 = length v1 == length v2 && toList v1 == toList v2
+    (==) = eq1
+
+instance Ord1 Vector where
+    liftCompare f v1 v2 = liftCompare f (toList v1) (toList v2)
 
 instance Ord a => Ord (Vector a) where
-    v1 `compare` v2 = toList v1 `compare` toList v2
+    compare = compare1
 
 instance Semigroup (Vector a) where
     (<>) = append
@@ -89,7 +98,7 @@ instance Traversable Vector where
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
 
-instance Exts.IsList (Vector a) where
+instance IsList (Vector a) where
     type Item (Vector a) = a
     fromList = fromList
     toList = toList
@@ -104,7 +113,7 @@ instance Applicative Vector where
 instance Monad Vector where
     xs >>= f = foldl' (\acc x -> append acc (f x)) empty xs
 
-instance Applicative.Alternative Vector where
+instance Alternative Vector where
     empty = empty
     {-# INLINE empty #-}
 
