@@ -53,8 +53,9 @@ module Data.PrioHeap.Internal
 , toDescList
 ) where
 
-import Prelude hiding (filter, map)
 import Data.Foldable (foldl', foldr')
+import Data.Functor.Classes
+import Prelude hiding (filter, map)
 
 import qualified Data.Heap.Internal as Heap
 
@@ -74,11 +75,17 @@ errorEmpty :: String -> a
 errorEmpty s = error $ "PrioHeap." ++ s ++ ": empty heap"
 
 
+instance Ord k => Eq1 (PrioHeap k) where
+    liftEq f heap1 heap2 = size heap1 == size heap2 && liftEq (liftEq f) (toAscList heap1) (toAscList heap2)
+
 instance (Ord k, Eq a) => Eq (PrioHeap k a) where
-    heap1 == heap2 = size heap1 == size heap2 && toAscList heap1 == toAscList heap2
+    (==) = eq1
+
+instance Ord k => Ord1 (PrioHeap k) where
+    liftCompare f heap1 heap2 = liftCompare (liftCompare f) (toAscList heap1) (toAscList heap2)
 
 instance (Ord k, Ord a) => Ord (PrioHeap k a) where
-    heap1 `compare` heap2 = toAscList heap1 `compare` toAscList heap2
+    compare = compare1
 
 instance Ord k => Semigroup (PrioHeap k a) where
     (<>) = union
