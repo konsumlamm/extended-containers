@@ -31,8 +31,8 @@ module Data.Heap.Internal
 , toDescList
 ) where
 
-import Prelude hiding (filter, map)
 import Data.Foldable (foldl', toList)
+import Prelude hiding (filter, map)
 
 type Size = Int
 type Rank = Int
@@ -57,7 +57,7 @@ instance Ord a => Eq (Heap a) where
     heap1 == heap2 = size heap1 == size heap2 && toAscList heap1 == toAscList heap2
 
 instance Ord a => Ord (Heap a) where
-    heap1 `compare` heap2 = toAscList heap1 `compare` toAscList heap2
+    compare heap1 heap2 = compare (toAscList heap1) (toAscList heap2)
 
 instance Ord a => Semigroup (Heap a) where
     (<>) = union
