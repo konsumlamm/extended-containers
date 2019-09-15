@@ -17,6 +17,9 @@ module Data.TrieVector
 , map
 ) where
 
+import qualified Control.Applicative as Applicative
+import Control.Monad (MonadPlus(..))
+import Control.Monad.Fail (MonadFail(..))
 import Data.Bits
 import Data.Foldable (foldl', length, toList)
 import Data.List.NonEmpty (NonEmpty(..), (!!), (<|))
@@ -90,6 +93,29 @@ instance Exts.IsList (Vector a) where
     type Item (Vector a) = a
     fromList = fromList
     toList = toList
+
+
+instance Applicative Vector where
+    pure = singleton
+    {- INLINE pure #-}
+
+    fs <*> xs = foldl' (\acc f -> append acc (map f xs)) empty fs
+
+instance Monad Vector where
+    xs >>= f = foldl' (\acc x -> append acc (f x)) empty xs
+
+instance Applicative.Alternative Vector where
+    empty = empty
+    {-# INLINE empty #-}
+
+    (<|>) = append
+    {-# INLINE (<|>) #-}
+
+instance MonadPlus Vector
+
+instance MonadFail Vector where
+    fail _ = empty
+    {-# INLINE fail #-}
 
 
 -- | /O(1)/. The empty vector.
