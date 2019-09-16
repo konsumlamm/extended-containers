@@ -34,6 +34,7 @@ module Data.Heap.Internal
 import Data.Foldable (foldl', toList)
 import Data.Functor.Classes
 import Prelude hiding (filter, map)
+import Text.Read (readListPrec, readPrec)
 
 type Size = Int
 type Rank = Int
@@ -57,6 +58,9 @@ instance Show1 Heap where
 instance Show a => Show (Heap a) where
     showsPrec = showsPrec1
     {-# INLINE showsPrec #-}
+
+instance (Ord a, Read a) => Read (Heap a) where
+    readPrec = readData $ readUnaryWith readListPrec "fromList" fromList
 
 instance Ord a => Eq (Heap a) where
     heap1 == heap2 = size heap1 == size heap2 && toAscList heap1 == toAscList heap2

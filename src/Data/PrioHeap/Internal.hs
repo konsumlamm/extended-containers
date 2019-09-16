@@ -56,6 +56,7 @@ module Data.PrioHeap.Internal
 import Data.Foldable (foldl', foldr')
 import Data.Functor.Classes
 import Prelude hiding (filter, map)
+import Text.Read (readPrec)
 
 import qualified Data.Heap.Internal as Heap
 
@@ -87,6 +88,15 @@ instance Show k => Show1 (PrioHeap k) where
 instance (Show k, Show a) => Show (PrioHeap k a) where
     showsPrec = showsPrec2
     {-# INLINE showsPrec #-}
+
+instance (Ord k, Read k) => Read1 (PrioHeap k) where
+    liftReadPrec rp rl = readData $ readUnaryWith (liftReadPrec rp' rl') "fromList" fromList
+      where
+        rp' = liftReadPrec rp rl
+        rl' = liftReadListPrec rp rl
+
+instance (Ord k, Read k, Read a) => Read (PrioHeap k a) where
+    readPrec = readPrec1
 
 instance Ord k => Eq1 (PrioHeap k) where
     liftEq f heap1 heap2 = size heap1 == size heap2 && liftEq (liftEq f) (toAscList heap1) (toAscList heap2)

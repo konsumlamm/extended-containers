@@ -32,6 +32,7 @@ import qualified Data.Vector.Mutable as M
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 import Prelude hiding ((!!), last, lookup, map, tail)
+import Text.Read (readPrec)
 
 data Tree a = Internal !(V.Vector (Tree a))
             | Leaf !(V.Vector a)
@@ -59,6 +60,12 @@ instance Show1 Vector where
 instance Show a => Show (Vector a) where
     showsPrec = showsPrec1
     {-# INLINE showsPrec #-}
+
+instance Read1 Vector where
+    liftReadPrec rp rl = readData $ readUnaryWith (liftReadPrec rp rl) "fromList" fromList
+
+instance Read a => Read (Vector a) where
+    readPrec = readPrec1
 
 instance Eq1 Vector where
     liftEq f v1 v2 = length v1 == length v2 && liftEq f (toList v1) (toList v2)
