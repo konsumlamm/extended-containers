@@ -53,20 +53,26 @@ mask :: Int
 mask = (1 `shiftL` bits) - 1
 
 
+instance Show1 Vector where
+    liftShowsPrec sp sl p v = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList v)
+
 instance Show a => Show (Vector a) where
-    show v = "fromList " ++ show (toList v)
+    showsPrec = showsPrec1
+    {-# INLINE showsPrec #-}
 
 instance Eq1 Vector where
     liftEq f v1 v2 = length v1 == length v2 && liftEq f (toList v1) (toList v2)
 
 instance Eq a => Eq (Vector a) where
     (==) = eq1
+    {-# INLINE (==) #-}
 
 instance Ord1 Vector where
     liftCompare f v1 v2 = liftCompare f (toList v1) (toList v2)
 
 instance Ord a => Ord (Vector a) where
     compare = compare1
+    {-# INLINE compare #-}
 
 instance Semigroup (Vector a) where
     (<>) = append

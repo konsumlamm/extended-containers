@@ -32,6 +32,7 @@ module Data.Heap.Internal
 ) where
 
 import Data.Foldable (foldl', toList)
+import Data.Functor.Classes
 import Prelude hiding (filter, map)
 
 type Size = Int
@@ -50,8 +51,12 @@ errorEmpty :: String -> a
 errorEmpty s = error $ "Heap." ++ s ++ ": empty heap"
 
 
+instance Show1 Heap where
+    liftShowsPrec sp sl p heap = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList heap)
+
 instance Show a => Show (Heap a) where
-    show heap = "fromList " ++ show (toList heap)
+    showsPrec = showsPrec1
+    {-# INLINE showsPrec #-}
 
 instance Ord a => Eq (Heap a) where
     heap1 == heap2 = size heap1 == size heap2 && toAscList heap1 == toAscList heap2

@@ -75,17 +75,32 @@ errorEmpty :: String -> a
 errorEmpty s = error $ "PrioHeap." ++ s ++ ": empty heap"
 
 
+instance Show2 PrioHeap where
+    liftShowsPrec2 spk slk spv slv p heap = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList heap)
+      where
+        sp = liftShowsPrec2 spk slk spv slv
+        sl = liftShowList2 spk slk spv slv
+
+instance Show k => Show1 (PrioHeap k) where
+    liftShowsPrec = liftShowsPrec2 showsPrec showList
+
+instance (Show k, Show a) => Show (PrioHeap k a) where
+    showsPrec = showsPrec2
+    {-# INLINE showsPrec #-}
+
 instance Ord k => Eq1 (PrioHeap k) where
     liftEq f heap1 heap2 = size heap1 == size heap2 && liftEq (liftEq f) (toAscList heap1) (toAscList heap2)
 
 instance (Ord k, Eq a) => Eq (PrioHeap k a) where
     (==) = eq1
+    {-# INLINE (==) #-}
 
 instance Ord k => Ord1 (PrioHeap k) where
     liftCompare f heap1 heap2 = liftCompare (liftCompare f) (toAscList heap1) (toAscList heap2)
 
 instance (Ord k, Ord a) => Ord (PrioHeap k a) where
     compare = compare1
+    {-# INLINE compare #-}
 
 instance Ord k => Semigroup (PrioHeap k a) where
     (<>) = union
