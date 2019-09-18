@@ -1,7 +1,32 @@
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | All logarithms are base 16.
+-- |
+-- = Finite vectors
+--
+-- The @'Vector' a@ type represents a finite vector of elements of type @a@.
+-- A 'Vector' is strict in its spine.
+--
+-- The class instances are based on those for lists.
+--
+-- This module should be imported qualified, to avoid name clashes with the 'Prelude'.
+--
+-- > import Qualified Data.TrieVector as Vector
+--
+-- == Performance
+--
+-- The running time complexities are given, with /n/ referring the the number of elements in the vector.
+-- A 'Vector' is particularily efficient for applications that require a lot of indexing and updates.
+-- The given running times are worst case. All logarithms are base 16.
+--
+-- == Warning
+--
+-- The length of a 'Vector' must not exceed @'maxBound' :: 'Int'@.
+-- Violation of this condition is not detected and if the length limit is exceeded, the behaviour of the vector is undefined.
+--
+-- == Implementation
+--
+-- The implementation of 'Vector' uses array mapped tries.
 
 module Data.TrieVector
 ( Vector
@@ -15,6 +40,8 @@ module Data.TrieVector
 , update
 , adjust
 , map
+, unfoldr
+, unfoldl
 ) where
 
 import Control.Applicative (Alternative)
@@ -226,3 +253,18 @@ append :: Vector a -> Vector a -> Vector a
 append Empty v = v
 append v Empty = v
 append v1 v2 = foldl' snoc v1 v2
+
+-- | Build a vector from left to right by repeatedly applying a function to a seed value
+unfoldr :: (b -> Maybe (a, b)) -> b -> Vector a
+unfoldr f acc = go acc empty
+  where
+    go acc v = case f acc of
+        Nothing -> v
+        Just (x, acc') -> go acc' (snoc v x)
+{-# INLINE unfoldr #-}
+
+-- | Build a vector from right to left by repeatedly applying a function to a seed value
+unfoldl :: (b -> Maybe (b, a)) -> b -> Vector a
+unfoldl f acc = case f acc of
+    Nothing -> empty
+    Just (acc', x) -> snoc (unfoldl f acc') x
