@@ -2,7 +2,7 @@
 -- = Finite heaps
 --
 -- The @'Heap' a@ type represents a finite heap (or priority queue) of elements of type @a@.
--- A 'Heap' is strict in its spine.
+-- A 'Heap' is strict in its spine. Unlike with sets, duplicate elements are allowed.
 --
 -- == Performance
 --

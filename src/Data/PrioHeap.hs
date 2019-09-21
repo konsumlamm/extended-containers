@@ -2,7 +2,7 @@
 -- = Finite priority heaps
 --
 -- The @'PrioHeap' k a@ type represents a finite heap (or priority queue) from keys/priorities of type @k@ to values of type @a@.
--- A 'PrioHeap' is strict in its spine.
+-- A 'PrioHeap' is strict in its spine. Unlike with maps, duplicate keys/priorities are allowed.
 --
 -- == Performance
 --
