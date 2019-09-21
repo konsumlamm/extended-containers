@@ -19,6 +19,7 @@ library
   exposed-modules:
     Data.Heap
     Data.PrioHeap
+    Data.Traversable.Utils
     Data.TrieVector
   other-modules:
     Data.Heap.Internal
