@@ -30,36 +30,61 @@
 
 module Data.TrieVector
 ( Vector
+-- * Construction
 , empty
 , singleton
 , fromList
+
 , snoc
+, append
 , last
+
 , lookup
 , (!?)
 , update
 , adjust
+
 , map
+
+, mapWithIndex
+, foldMapWithIndex
+, foldlWithIndex
+, foldrWithIndex
+, foldlWithIndex'
+, foldrWithIndex'
+, traverseWithIndex
+
 , unfoldr
 , unfoldl
+-- * Zipping/Unzipping
+, zip
+, zipWith
+, zip3
+, zipWith3
+, unzip
+, unzip3
 ) where
 
 import Control.Applicative (Alternative)
 import qualified Control.Applicative as Applicative
 import Control.Monad (MonadPlus(..))
 import Control.Monad.Fail (MonadFail(..))
+import Control.Monad.Zip (MonadZip(..))
+
 import Data.Bits
 import Data.Foldable (foldl', length, toList)
 import Data.Functor.Classes
 import Data.List.NonEmpty (NonEmpty(..), (!!), (<|))
 import qualified Data.List.NonEmpty as L
+import Data.Traversable (mapAccumL)
+import GHC.Exts (IsList)
+import qualified GHC.Exts as Exts
+import Prelude hiding ((!!), last, lookup, map, tail, unzip, unzip3, zip, zipWith, zip3, zipWith3)
+import Text.Read (readPrec)
+
 import Data.Vector ((!))
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
-import GHC.Exts (IsList)
-import qualified GHC.Exts as Exts
-import Prelude hiding ((!!), last, lookup, map, tail)
-import Text.Read (readPrec)
 
 data Tree a = Internal !(V.Vector (Tree a))
             | Leaf !(V.Vector a)
@@ -146,7 +171,7 @@ instance IsList (Vector a) where
 
 instance Applicative Vector where
     pure = singleton
-    {- INLINE pure #-}
+    {-# INLINE pure #-}
 
     fs <*> xs = foldl' (\acc f -> append acc (map f xs)) empty fs
 
@@ -165,6 +190,16 @@ instance MonadPlus Vector
 instance MonadFail Vector where
     fail _ = empty
     {-# INLINE fail #-}
+
+instance MonadZip Vector where
+    mzip = zip
+    {-# INLINE mzip #-}
+
+    mzipWith = zipWith
+    {-# INLINE mzipWith #-}
+
+    munzip = unzip
+    {-# INLINE munzip #-}
 
 
 -- | /O(1)/. The empty vector.
@@ -219,7 +254,8 @@ lookup i (Root s offset h tree tail)
 (!?) :: Vector a -> Int -> Maybe a
 (!?) = flip lookup
 
--- | /O(log n)/. Update the element at the index with a new element. Returns the original vector if the index is out of range.
+-- | /O(log n)/. Update the element at the index with a new element.
+-- Returns the original vector if the index is out of range.
 update :: Int -> a -> Vector a -> Vector a
 update i x = adjust i (const x)
 {-# INLINE update #-}
@@ -240,6 +276,12 @@ adjust i f root@(Root s offset h tree tail)
         let index = i .&. mask
         in Leaf $ V.modify (\v -> M.modify v f index) v
 
+-- | Concatenate two vectors.
+append :: Vector a -> Vector a -> Vector a
+append Empty v = v
+append v Empty = v
+append v1 v2 = foldl' snoc v1 v2
+
 -- | /O(n)/. Map a function over the vector.
 map :: (a -> b) -> Vector a -> Vector b
 map _ Empty = Empty
@@ -248,13 +290,41 @@ map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
     mapTree (Internal v) = Internal (fmap mapTree v)
     mapTree (Leaf v) = Leaf (fmap f v)
 
--- | Concatenate two vectors.
-append :: Vector a -> Vector a -> Vector a
-append Empty v = v
-append v Empty = v
-append v1 v2 = foldl' snoc v1 v2
+-- | /O(n)/. Map a function that has access to the index of an element over the vector.
+mapWithIndex :: (Int -> a -> b) -> Vector a -> Vector b
+mapWithIndex f = snd . mapAccumL (\i x -> (i + 1, f i x)) 0
 
--- | Build a vector from left to right by repeatedly applying a function to a seed value
+-- | /O(n)/. Fold using the given monoid.
+foldMapWithIndex :: Monoid m => (Int -> a -> m) -> Vector a -> m
+foldMapWithIndex f = foldrWithIndex (\i -> mappend . f i) mempty
+
+-- | /O(n)/. Fold using the given left-associative function that has access to the index of an element.
+foldlWithIndex :: (b -> Int -> a -> b) -> b -> Vector a -> b
+foldlWithIndex f z0 v = foldl (\g x i -> f (g (i - 1)) i x) (const z0) v (length v - 1)
+
+-- | /O(n)/. Fold using the given right-associative function that has access to the index of an element.
+foldrWithIndex :: (Int -> a -> b -> b) -> b -> Vector a -> b
+foldrWithIndex f z0 v = foldr (\x g i -> f i x (g (i + 1))) (const z0) v 0
+
+-- | /O(n)/. A strict version of 'foldlWithIndex'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldlWithIndex' :: (b -> Int -> a -> b) -> b -> Vector a -> b
+foldlWithIndex' f z0 v = foldrWithIndex f' id v z0
+  where
+    f' i x k z = k $! f z i x
+
+-- | /O(n)/. A strict version of 'foldrWithIndex'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldrWithIndex' :: (Int -> a -> b -> b) -> b -> Vector a -> b
+foldrWithIndex' f z0 v = foldlWithIndex f' id v z0
+  where
+    f' k i x z = k $! f i x z
+
+-- | /O(n)/. Traverse the vector with a function that has access to the index of an element.
+traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector b)
+traverseWithIndex f = sequenceA . mapWithIndex f
+
+-- | /O(n * log n)/. Build a vector from left to right by repeatedly applying a function to a seed value.
 unfoldr :: (b -> Maybe (a, b)) -> b -> Vector a
 unfoldr f acc = go acc empty
   where
@@ -263,8 +333,43 @@ unfoldr f acc = go acc empty
         Just (x, acc') -> go acc' (snoc v x)
 {-# INLINE unfoldr #-}
 
--- | Build a vector from right to left by repeatedly applying a function to a seed value
+-- | /O(n * log n)/. Build a vector from right to left by repeatedly applying a function to a seed value.
 unfoldl :: (b -> Maybe (b, a)) -> b -> Vector a
 unfoldl f acc = case f acc of
     Nothing -> empty
     Just (acc', x) -> snoc (unfoldl f acc') x
+
+-- |
+zip :: Vector a -> Vector b -> Vector (a, b)
+zip = zipWith (,)
+{-# INLINE zip #-}
+
+-- |
+zipWith :: (a -> b -> c) -> Vector a -> Vector b -> Vector c
+zipWith f v1 v2
+    | length v1 >= length v2 = snd $ mapAccumL f' (toList v1) v2
+    | otherwise = zipWith (flip f) v2 v1
+  where
+    f' [] _ = error "unreachable"
+    f' (x : xs) y = (xs, f x y)
+
+-- |
+zip3 :: Vector a -> Vector b -> Vector c -> Vector (a, b, c)
+zip3 = zipWith3 (,,)
+{-# INLINE zip3 #-}
+
+-- |
+zipWith3 :: (a -> b -> c -> d) -> Vector a -> Vector b -> Vector c -> Vector d
+zipWith3 f v1 v2 v3 = zipWith ($) (zipWith f v1 v2) v3
+
+-- | /O(n)/.
+unzip :: Vector (a, b) -> (Vector a, Vector b)
+unzip v = (map fst v, map snd v)
+
+-- | /O(n)/.
+unzip3 :: Vector (a, b, c) -> (Vector a, Vector b, Vector c)
+unzip3 v = (map fst3 v, map snd3 v, map trd3 v)
+  where
+    fst3 (x, _, _) = x
+    snd3 (_, y, _) = y
+    trd3 (_, _, z) = z
