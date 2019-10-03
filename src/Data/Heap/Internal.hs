@@ -39,7 +39,7 @@ import Text.Read (readListPrec, readPrec)
 type Size = Int
 type Rank = Int
 -- | A Leftist Heap.
-data Heap a = Leaf | Node !Size !Rank !a !(Heap a) !(Heap a)
+data Heap a = Leaf | Node {-# UNPACK #-} !Size {-# UNPACK #-} !Rank !a !(Heap a) !(Heap a)
 
 node :: a -> Heap a -> Heap a -> Heap a
 node x heap Leaf = Node (size heap + 1) 1 x heap Leaf

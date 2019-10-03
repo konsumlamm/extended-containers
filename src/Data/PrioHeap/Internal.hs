@@ -63,7 +63,7 @@ import qualified Data.Heap.Internal as Heap
 type Size = Int
 type Rank = Int
 -- | A Leftist Heap with associated priorities.
-data PrioHeap k a = Leaf | Node !Size !Rank !k a !(PrioHeap k a) !(PrioHeap k a)
+data PrioHeap k a = Leaf | Node {-# UNPACK #-} !Size {-# UNPACK #-} !Rank !k a !(PrioHeap k a) !(PrioHeap k a)
 
 node :: k -> a -> PrioHeap k a -> PrioHeap k a -> PrioHeap k a
 node key x heap Leaf = Node (size heap + 1) 1 key x heap Leaf
