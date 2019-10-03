@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
@@ -53,6 +52,7 @@ module Data.TrieVector
 , foldlWithIndex'
 , foldrWithIndex'
 , traverseWithIndex
+, indexed
 
 , unfoldr
 , unfoldl
@@ -86,13 +86,15 @@ import Data.Vector ((!))
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
 
+import Data.Traversable.Utils (traverseAccumL)
+
 data Tree a = Internal !(V.Vector (Tree a))
             | Leaf !(V.Vector a)
 -- | An Array Mapped Trie.
 data Vector a = Empty
-              | Root !Int  -- size
-                     !Int  -- offset
-                     !Int  -- height
+              | Root {-# UNPACK #-} !Int  -- size
+                     {-# UNPACK #-} !Int  -- offset
+                     {-# UNPACK #-} !Int  -- height
                      !(Tree a)  -- tree
                      !(NonEmpty a)  -- tail (reversed)
 
@@ -209,7 +211,7 @@ empty = Empty
 
 -- | /O(1)/. A vector with a single element.
 singleton :: a -> Vector a
-singleton x = Root 1 0 0 (Leaf V.empty) [x]
+singleton x = Root 1 0 0 (Leaf V.empty) (x :| [])
 
 -- | /O(n * log n)/. Create a new vector from a list.
 fromList :: [a] -> Vector a
@@ -220,9 +222,9 @@ snoc :: Vector a -> a -> Vector a
 snoc Empty x = singleton x
 snoc (Root s offset h tree tail) x
     | s .&. mask /= 0 = Root (s + 1) offset h tree (x <| tail)
-    | offset == 0 = Root (s + 1) s (h + 1) (Leaf $ V.fromList (toList $ L.reverse tail)) [x]
-    | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) [x]
-    | otherwise = Root (s + 1) s h (insertTail (bits * (h - 1)) tree) [x]
+    | offset == 0 = Root (s + 1) s (h + 1) (Leaf $ V.fromList (toList $ L.reverse tail)) (x :| [])
+    | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) (x :| [])
+    | otherwise = Root (s + 1) s h (insertTail (bits * (h - 1)) tree) (x :| [])
   where
     newPath 1 = Leaf $ V.fromList (toList $ L.reverse tail)
     newPath h = Internal $ V.singleton (newPath (h - 1))
@@ -300,11 +302,11 @@ foldMapWithIndex f = foldrWithIndex (\i -> mappend . f i) mempty
 
 -- | /O(n)/. Fold using the given left-associative function that has access to the index of an element.
 foldlWithIndex :: (b -> Int -> a -> b) -> b -> Vector a -> b
-foldlWithIndex f z0 v = foldl (\g x i -> f (g (i - 1)) i x) (const z0) v (length v - 1)
+foldlWithIndex f z0 v = foldl (\g x i -> i `seq` f (g (i - 1)) i x) (const z0) v (length v - 1)
 
 -- | /O(n)/. Fold using the given right-associative function that has access to the index of an element.
 foldrWithIndex :: (Int -> a -> b -> b) -> b -> Vector a -> b
-foldrWithIndex f z0 v = foldr (\x g i -> f i x (g (i + 1))) (const z0) v 0
+foldrWithIndex f z0 v = foldr (\x g i -> i `seq` f i x (g (i + 1))) (const z0) v 0
 
 -- | /O(n)/. A strict version of 'foldlWithIndex'.
 -- Each application of the function is evaluated before using the result in the next application.
@@ -322,15 +324,19 @@ foldrWithIndex' f z0 v = foldlWithIndex f' id v z0
 
 -- | /O(n)/. Traverse the vector with a function that has access to the index of an element.
 traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector b)
-traverseWithIndex f = sequenceA . mapWithIndex f
+traverseWithIndex f = snd . traverseAccumL (\i x -> (i + 1, f i x)) 0
+
+indexed :: Vector a -> Vector (Int, a)
+indexed = mapWithIndex (,)
+{-# INLINE indexed #-}
 
 -- | /O(n * log n)/. Build a vector from left to right by repeatedly applying a function to a seed value.
 unfoldr :: (b -> Maybe (a, b)) -> b -> Vector a
-unfoldr f acc = go acc empty
+unfoldr f = go empty
   where
-    go acc v = case f acc of
+    go v acc = case f acc of
         Nothing -> v
-        Just (x, acc') -> go acc' (snoc v x)
+        Just (x, acc') -> go (snoc v x) acc'
 {-# INLINE unfoldr #-}
 
 -- | /O(n * log n)/. Build a vector from right to left by repeatedly applying a function to a seed value.
@@ -339,12 +345,10 @@ unfoldl f acc = case f acc of
     Nothing -> empty
     Just (acc', x) -> snoc (unfoldl f acc') x
 
--- |
 zip :: Vector a -> Vector b -> Vector (a, b)
 zip = zipWith (,)
 {-# INLINE zip #-}
 
--- |
 zipWith :: (a -> b -> c) -> Vector a -> Vector b -> Vector c
 zipWith f v1 v2
     | length v1 >= length v2 = snd $ mapAccumL f' (toList v1) v2
@@ -353,12 +357,10 @@ zipWith f v1 v2
     f' [] _ = error "unreachable"
     f' (x : xs) y = (xs, f x y)
 
--- |
 zip3 :: Vector a -> Vector b -> Vector c -> Vector (a, b, c)
 zip3 = zipWith3 (,,)
 {-# INLINE zip3 #-}
 
--- |
 zipWith3 :: (a -> b -> c -> d) -> Vector a -> Vector b -> Vector c -> Vector d
 zipWith3 f v1 v2 v3 = zipWith ($) (zipWith f v1 v2) v3
 
