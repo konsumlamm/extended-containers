@@ -63,6 +63,8 @@ module Data.TrieVector
 , zipWith3
 , unzip
 , unzip3
+
+, toIndexedList
 ) where
 
 import Control.Applicative (Alternative)
@@ -278,7 +280,7 @@ adjust i f root@(Root s offset h tree tail)
         let index = i .&. mask
         in Leaf $ V.modify (\v -> M.modify v f index) v
 
--- | Concatenate two vectors.
+-- | /O(m * log n)/. Concatenate two vectors.
 append :: Vector a -> Vector a -> Vector a
 append Empty v = v
 append v Empty = v
@@ -326,6 +328,7 @@ foldrWithIndex' f z0 v = foldlWithIndex f' id v z0
 traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector b)
 traverseWithIndex f = snd . traverseAccumL (\i x -> (i + 1, f i x)) 0
 
+-- | /O(n)/.
 indexed :: Vector a -> Vector (Int, a)
 indexed = mapWithIndex (,)
 {-# INLINE indexed #-}
@@ -375,3 +378,7 @@ unzip3 v = (map fst3 v, map snd3 v, map trd3 v)
     fst3 (x, _, _) = x
     snd3 (_, y, _) = y
     trd3 (_, _, z) = z
+
+toIndexedList :: Vector a -> [(Int, a)]
+toIndexedList = foldrWithIndex (curry (:)) []
+{-# INLINE toIndexedList #-}
