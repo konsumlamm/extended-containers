@@ -47,6 +47,7 @@ module Data.Heap
 , minView
 -- * Conversion
 -- ** To Lists
+, smallestN
 , toAscList
 , toDescList
 ) where

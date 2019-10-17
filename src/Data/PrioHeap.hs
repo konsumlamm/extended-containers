@@ -66,6 +66,7 @@ module Data.PrioHeap
 -- * Conversion
 , keysHeap
 -- ** To Lists
+, smallestN
 , values
 , keys
 , toList

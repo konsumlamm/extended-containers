@@ -27,6 +27,7 @@ module Data.Heap.Internal
 , minView
 -- * Conversion
 -- ** To Lists
+, smallestN
 , toAscList
 , toDescList
 ) where
@@ -124,7 +125,7 @@ fromDescList = foldl' (\acc x -> node x acc empty) empty
 insert :: Ord a => a -> Heap a -> Heap a
 insert = union . singleton
 
--- | The union of two heaps.
+-- | /O(log(max(n, m)))/. The union of two heaps.
 union :: Ord a => Heap a -> Heap a -> Heap a
 union Leaf heap = heap
 union heap Leaf = heap
@@ -132,6 +133,9 @@ union heap1@(Node _ _ x1 left1 right1) heap2@(Node _ _ x2 left2 right2)
     | x1 <= x2 = node x1 left1 (union right1 heap2)
     | otherwise = node x2 left2 (union right2 heap1)
 
+-- | The union of a foldable of heaps.
+--
+-- > unions = foldl union empty
 unions :: (Foldable f, Ord a) => f (Heap a) -> Heap a
 unions = foldl' union empty
 
@@ -146,14 +150,14 @@ mapMonotonic :: (a -> b) -> Heap a -> Heap b
 mapMonotonic _ Leaf = Leaf
 mapMonotonic f (Node s r x left right) = Node s r (f x) (mapMonotonic f left) (mapMonotonic f right)
 
--- | Filter all elements that satisfy the predicate.
+-- | /O(n)/. Filter all elements that satisfy the predicate.
 filter :: Ord a => (a -> Bool) -> Heap a -> Heap a
 filter _ Leaf = Leaf
 filter f (Node _ _ x left right)
     | f x = node x (filter f left) (filter f right)
     | otherwise = union (filter f left) (filter f right)
 
--- | Partition the heap into two heaps, one with all elements that satisfy the predicate and one with all elements that don't satisfy the predicate.
+-- | /O(n)/. Partition the heap into two heaps, one with all elements that satisfy the predicate and one with all elements that don't satisfy the predicate.
 partition :: Ord a => (a -> Bool) -> Heap a -> (Heap a, Heap a)
 partition _ Leaf = (Leaf, Leaf)
 partition f (Node _ _ x left right)
@@ -212,6 +216,13 @@ minView (Node _ _ x left right) = Just (x, union left right)
 toAscList :: Ord a => Heap a -> [a]
 toAscList Leaf = []
 toAscList (Node _ _ x left right) = x : toAscList (union left right)
+
+-- | /O(n * log n)/. Returns an ascending list of the n smallest elements from the heap and the remaining heap.
+smallestN :: Ord a => Int -> Heap a -> ([a], Heap a)
+smallestN _ Leaf = ([], Leaf)
+smallestN n heap@(Node _ _ x left right)
+    | n <= 0 = ([], heap)
+    | otherwise = let (xs, heap') = smallestN (n - 1) (union left right) in (x : xs, heap')
 
 -- | /O(n * log n)/. Create a descending list from the heap.
 toDescList :: Ord a => Heap a -> [a]
