@@ -17,10 +17,10 @@ tested-with:         GHC == 8.6.5
 library
   hs-source-dirs:      src
   exposed-modules:
+    Data.AMT
     Data.Heap
     Data.PrioHeap
     Data.Traversable.Utils
-    Data.TrieVector
   other-modules:
     Data.Heap.Internal
     Data.PrioHeap.Internal

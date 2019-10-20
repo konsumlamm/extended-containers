@@ -10,7 +10,7 @@
 --
 -- This module should be imported qualified, to avoid name clashes with the 'Prelude'.
 --
--- > import Qualified Data.TrieVector as Vector
+-- > import Qualified Data.AMT as Vector
 --
 -- == Performance
 --
@@ -27,7 +27,7 @@
 --
 -- The implementation of 'Vector' uses array mapped tries.
 
-module Data.TrieVector
+module Data.AMT
 ( Vector
 -- * Construction
 , empty
