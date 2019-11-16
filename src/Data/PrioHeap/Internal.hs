@@ -145,11 +145,15 @@ instance Traversable (PrioHeap k) where
 
 
 -- | /O(1)/. The empty heap.
+--
+-- > empty = fromList []
 empty :: PrioHeap k a
 empty = Leaf
 {-# INLINE empty #-}
 
 -- | /O(1)/. A heap with a single element.
+--
+-- > singleton k x = fromList [(k, x)]
 singleton :: k -> a -> PrioHeap k a
 singleton k x = Node 1 1 k x Leaf Leaf
 {-# INLINE singleton #-}
@@ -340,7 +344,7 @@ deleteMin :: Ord k => PrioHeap k a -> PrioHeap k a
 deleteMin Leaf = empty
 deleteMin (Node _ _ _ _ left right) = union left right
 
--- | /O(log n)/. Delete and find the minimal element.
+-- | /O(log n)/. Delete and find the minimal element. Calls 'error' if the heap is empty.
 --
 -- > deleteFindMin heap = (findMin heap, deleteMin heap)
 deleteFindMin :: Ord k => PrioHeap k a -> ((k, a), PrioHeap k a)

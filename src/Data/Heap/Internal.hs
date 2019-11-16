@@ -93,11 +93,15 @@ instance Foldable Heap where
 
 
 -- | /O(1)/. The empty heap.
+--
+-- > empty = fromList []
 empty :: Heap a
 empty = Leaf
 {-# INLINE empty #-}
 
 -- | /O(1)/. A heap with a single element.
+--
+-- > singleton x = fromList [x]
 singleton :: a -> Heap a
 singleton x = Node 1 1 x Leaf Leaf
 {-# INLINE singleton #-}
@@ -198,7 +202,7 @@ deleteMin :: Ord a => Heap a -> Heap a
 deleteMin Leaf = Leaf
 deleteMin (Node _ _ _ left right) = union left right
 
--- | /O(log n)/. Delete and find the minimal element.
+-- | /O(log n)/. Delete and find the minimal element. Calls 'error' if the heap is empty.
 --
 -- > deleteFindMin heap = (findMin heap, deleteMin heap)
 deleteFindMin :: Ord a => Heap a -> (a, Heap a)
