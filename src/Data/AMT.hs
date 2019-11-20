@@ -207,11 +207,15 @@ instance MonadZip Vector where
 
 
 -- | /O(1)/. The empty vector.
+--
+-- > empty = fromList []
 empty :: Vector a
 empty = Empty
 {-# INLINE empty #-}
 
 -- | /O(1)/. A vector with a single element.
+--
+-- > singleton x = fromList [x]
 singleton :: a -> Vector a
 singleton x = Root 1 0 0 (Leaf V.empty) (x :| [])
 
@@ -242,6 +246,15 @@ snoc (Root s offset h tree tail) x
 last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
+
+-- unsnoc :: Vector a -> Maybe (Vector a, a)
+-- unsnoc Empty = Nothing
+-- unsnoc root@(Root s _ _ _ (x :| _) = Just (take (s - 1) root, x)
+
+-- take :: Int -> Vector a -> Vector a
+-- take _ Empty = Empty
+-- take n (Root s offset h tree tail)
+--     | n <= 0 = Empty
 
 -- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
 lookup :: Int -> Vector a -> Maybe a
