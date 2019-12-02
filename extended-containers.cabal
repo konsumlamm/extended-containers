@@ -24,6 +24,6 @@ library
   other-modules:
     Data.Heap.Internal
     Data.PrioHeap.Internal
-  ghc-options:         -O -Wall
+  ghc-options:         -O -W -Werror
   build-depends:       base >= 4.7 && < 5, vector
   default-language:    Haskell2010
