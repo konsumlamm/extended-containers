@@ -1,19 +1,14 @@
 module Data.Heap.Internal
 ( Heap(..)
 -- * Construction
-, empty
-, singleton
+, empty, singleton
 -- ** From Lists
-, fromList
-, fromAscList
-, fromDescList
+, fromList, fromAscList, fromDescList
 -- * Insertion/Union
 , insert
-, union
-, unions
+, union, unions
 -- * Traversal/Filter
-, map
-, mapMonotonic
+, map, mapMonotonic
 , filter
 , partition
 -- * Query
@@ -28,8 +23,7 @@ module Data.Heap.Internal
 -- * Conversion
 -- ** To Lists
 , smallestN
-, toAscList
-, toDescList
+, toAscList, toDescList
 ) where
 
 import Data.Foldable (foldl', toList)

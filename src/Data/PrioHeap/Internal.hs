@@ -1,57 +1,41 @@
 module Data.PrioHeap.Internal
 ( PrioHeap(..)
 -- * Construction
-, empty
-, singleton
+, empty, singleton
 , fromHeap
 -- ** From Lists
-, fromList
-, fromAscList
-, fromDescList
+, fromList, fromAscList, fromDescList
 -- * Insertion/Union
 , insert
-, union
-, unions
+, union, unions
 -- * Traversal/Filter
-, map
-, mapWithKey
+, map, mapWithKey
 , traverseWithKey
-, filter
-, filterWithKey
-, partition
-, partitionWithKey
-, mapMaybe
-, mapMaybeWithKey
-, mapEither
-, mapEitherWithKey
+, filter, filterWithKey
+, partition, partitionWithKey
+, mapMaybe, mapMaybeWithKey
+, mapEither, mapEitherWithKey
 -- * Folds with key
 , foldMapWithKey
-, foldlWithKey
-, foldrWithKey
-, foldlWithKey'
-, foldrWithKey'
+, foldlWithKey, foldrWithKey
+, foldlWithKey', foldrWithKey'
 -- * Query
 , member
 , size
 -- * Min
-, adjustMin
-, adjustMinWithKey
+, adjustMin, adjustMinWithKey
 , lookupMin
 , findMin
 , deleteMin
 , deleteFindMin
-, updateMin
-, updateMinWithKey
+, updateMin, updateMinWithKey
 , minView
 -- * Conversion
 , keysHeap
 -- ** To Lists
 , smallestN
-, values
-, keys
-, toList
-, toAscList
-, toDescList
+, values, keys
+, toList, toAscList, toDescList
 ) where
 
 import Data.Foldable (foldl', foldr')

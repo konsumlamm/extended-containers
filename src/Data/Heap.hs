@@ -21,19 +21,14 @@
 module Data.Heap
 ( Heap
 -- * Construction
-, empty
-, singleton
+, empty, singleton
 -- ** From Lists
-, fromList
-, fromAscList
-, fromDescList
+, fromList, fromAscList, fromDescList
 -- * Insertion/Union
 , insert
-, union
-, unions
+, union, unions
 -- * Traversal/Filter
-, map
-, mapMonotonic
+, map, mapMonotonic
 , filter
 , partition
 -- * Query
@@ -48,8 +43,7 @@ module Data.Heap
 -- * Conversion
 -- ** To Lists
 , smallestN
-, toAscList
-, toDescList
+, toAscList, toDescList
 ) where
 
 import Prelude hiding (filter, map)
