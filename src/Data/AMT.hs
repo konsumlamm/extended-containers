@@ -1,68 +1,62 @@
 {-# LANGUAGE TypeFamilies #-}
 
--- |
--- = Finite vectors
---
--- The @'Vector' a@ type represents a finite vector of elements of type @a@.
--- A 'Vector' is strict in its spine.
---
--- The class instances are based on those for lists.
---
--- This module should be imported qualified, to avoid name clashes with the 'Prelude'.
---
--- > import Qualified Data.AMT as Vector
---
--- == Performance
---
--- The running time complexities are given, with /n/ referring the the number of elements in the vector.
--- A 'Vector' is particularily efficient for applications that require a lot of indexing and updates.
--- The given running times are worst case. All logarithms are base 16.
---
--- == Warning
---
--- The length of a 'Vector' must not exceed @'maxBound' :: 'Int'@.
--- Violation of this condition is not detected and if the length limit is exceeded, the behaviour of the vector is undefined.
---
--- == Implementation
---
--- The implementation of 'Vector' uses array mapped tries.
+{- |
+= Finite vectors
+
+The @'Vector' a@ type represents a finite vector of elements of type @a@.
+A 'Vector' is strict in its spine.
+
+The class instances are based on those for lists.
+
+This module should be imported qualified, to avoid name clashes with the 'Prelude'.
+
+> import Qualified Data.AMT as Vector
+
+== Performance
+
+The running time complexities are given, with /n/ referring the the number of elements in the vector.
+A 'Vector' is particularily efficient for applications that require a lot of indexing and updates.
+The given running times are worst case. All logarithms are base 16.
+
+== Warning
+
+The length of a 'Vector' must not exceed @'maxBound' :: 'Int'@.
+Violation of this condition is not detected and if the length limit is exceeded, the behaviour of the vector is undefined.
+
+== Implementation
+
+The implementation of 'Vector' uses array mapped tries.
+-}
 
 module Data.AMT
 ( Vector
 -- * Construction
-, empty
-, singleton
-, fromList
+, empty, singleton, fromList
 
 , snoc
 , append
 , last
+, unsnoc
+, take
 
 , lookup
 , (!?)
 , update
 , adjust
 
-, map
+, map, mapWithIndex
 
-, mapWithIndex
 , foldMapWithIndex
-, foldlWithIndex
-, foldrWithIndex
-, foldlWithIndex'
-, foldrWithIndex'
+, foldlWithIndex, foldrWithIndex
+, foldlWithIndex', foldrWithIndex'
 , traverseWithIndex
 , indexed
 
-, unfoldr
-, unfoldl
+, unfoldr, unfoldl
 -- * Zipping/Unzipping
-, zip
-, zipWith
-, zip3
-, zipWith3
-, unzip
-, unzip3
+, zip, zipWith
+, zip3, zipWith3
+, unzip, unzip3
 
 , toIndexedList
 ) where
@@ -81,7 +75,7 @@ import qualified Data.List.NonEmpty as L
 import Data.Traversable (mapAccumL)
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
-import Prelude hiding ((!!), last, lookup, map, tail, unzip, unzip3, zip, zipWith, zip3, zipWith3)
+import Prelude hiding ((!!), last, lookup, map, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
 import Text.Read (readPrec)
 
 import Data.Vector ((!))
@@ -95,8 +89,8 @@ data Tree a = Internal !(V.Vector (Tree a))
 -- | An Array Mapped Trie.
 data Vector a = Empty
               | Root {-# UNPACK #-} !Int  -- size
-                     {-# UNPACK #-} !Int  -- offset
-                     {-# UNPACK #-} !Int  -- height
+                     {-# UNPACK #-} !Int  -- offset (number of elements in the tree)
+                     {-# UNPACK #-} !Int  -- height (of the tree)
                      !(Tree a)  -- tree
                      !(NonEmpty a)  -- tail (reversed)
 
@@ -108,7 +102,6 @@ bits = 4
 -- The mask used to extract the index into the array.
 mask :: Int
 mask = (1 `shiftL` bits) - 1
-
 
 instance Show1 Vector where
     liftShowsPrec sp sl p v = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList v)
@@ -151,6 +144,9 @@ instance Foldable Vector where
       where
         foldrTree (Internal v) acc = foldr foldrTree acc v
         foldrTree (Leaf v) acc = foldr f acc v
+
+    null Empty = True
+    null (Root _ _ _ _ _) = False
 
     length Empty = 0
     length (Root s _ _ _ _) = s
@@ -232,6 +228,7 @@ snoc (Root s offset h tree tail) x
     | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) (x :| [])
     | otherwise = Root (s + 1) s h (insertTail (bits * (h - 1)) tree) (x :| [])
   where
+    -- create a new path from the old tail
     newPath 1 = Leaf $ V.fromList (toList $ L.reverse tail)
     newPath h = Internal $ V.singleton (newPath (h - 1))
 
@@ -247,14 +244,37 @@ last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
 
--- unsnoc :: Vector a -> Maybe (Vector a, a)
--- unsnoc Empty = Nothing
--- unsnoc root@(Root s _ _ _ (x :| _) = Just (take (s - 1) root, x)
+-- | //.
+unsnoc :: Vector a -> Maybe (Vector a, a)
+unsnoc Empty = Nothing
+unsnoc root@(Root s _ _ _ (x :| _)) = Just (take (s - 1) root, x)
 
--- take :: Int -> Vector a -> Vector a
--- take _ Empty = Empty
--- take n (Root s offset h tree tail)
---     | n <= 0 = Empty
+-- | //. Take the first n elements of the vector.
+-- TODO: test
+take :: Int -> Vector a -> Vector a
+take _ Empty = Empty
+take n root@(Root s offset h tree tail)
+    | n <= 0 = Empty
+    | n >= s = root
+    | n < (s - offset) = Root n offset h tree (L.fromList $ L.drop (s - offset - n) tail)
+    | otherwise = normalize $ Root n (n - (1 `shiftL` bits)) h (takeTree n tree) (getTail (bits * (h - 1)) tree)
+  where
+    -- index of the last element in the new vector
+    index = n - 1
+
+    takeTree sh (Internal v) =
+        let subIndex = index `shiftR` sh .&. mask
+            sub = takeTree (sh - bits) (v ! subIndex)
+            new = V.take (subIndex + 1) v
+        in Internal $ V.modify (\v -> M.write v subIndex sub) new
+    takeTree _ (Leaf v) = Leaf $ V.take (index .&. mask + 1) v
+
+    getTail sh (Internal v) = getTail (sh - bits) (v ! (index `shiftR` sh .&. mask))
+    getTail _ (Leaf v) = L.fromList . reverse $ toList v
+
+    normalize (Root s offset h (Internal v) tail)
+        | length v == 1 = normalize $ Root s offset (h - 1) (v ! 0) tail
+    normalize v = v
 
 -- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
 lookup :: Int -> Vector a -> Maybe a
