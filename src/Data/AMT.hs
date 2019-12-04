@@ -76,6 +76,7 @@ import Data.Traversable (mapAccumL)
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 import Prelude hiding ((!!), last, lookup, map, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
+import qualified Prelude as P
 import Text.Read (readPrec)
 
 import Data.Vector ((!))
@@ -99,9 +100,13 @@ bits :: Int
 bits = 4
 {-# INLINE bits #-}
 
+-- The maximum size of the tail.
+tailSize :: Int
+tailSize = 1 `shiftL` bits
+
 -- The mask used to extract the index into the array.
 mask :: Int
-mask = (1 `shiftL` bits) - 1
+mask = tailSize - 1
 
 instance Show1 Vector where
     liftShowsPrec sp sl p v = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList v)
@@ -244,33 +249,57 @@ last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
 
--- | //.
+-- | /O(log n)/.
 unsnoc :: Vector a -> Maybe (Vector a, a)
 unsnoc Empty = Nothing
-unsnoc root@(Root s _ _ _ (x :| _)) = Just (take (s - 1) root, x)
+unsnoc (Root s offset h tree (x :| tail))
+    | not (null tail) = Just (Root (s - 1) offset h tree (L.fromList tail), x)
+    | s == 1 = Just (Empty, x)
+    | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf V.empty) (getTail tree), x)
+    | otherwise =
+        let sh = bits * (h - 1)
+        in Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree sh tree) (getTail tree), x)
+  where
+    index' = offset - tailSize - 1
 
--- | //. Take the first n elements of the vector.
--- TODO: test
+    unsnocTree sh (Internal v) =
+        let subIndex = index' `shiftR` sh .&. mask
+            new = V.take (subIndex + 1) v
+        in Internal $ V.modify (\v -> M.modify v (unsnocTree (sh - bits)) subIndex) new
+    unsnocTree _ (Leaf v) = Leaf v
+
+    getTail (Internal v) = getTail (V.last v)
+    getTail (Leaf v) = L.fromList . reverse $ toList v
+
+    normalize (Root s offset h (Internal v) tail)
+        | length v == 1 = Root s offset (h - 1) (v ! 0) tail
+    normalize v = v
+
+-- | /O(log n)/. Take the first n elements of the vector.
 take :: Int -> Vector a -> Vector a
 take _ Empty = Empty
 take n root@(Root s offset h tree tail)
     | n <= 0 = Empty
     | n >= s = root
-    | n < (s - offset) = Root n offset h tree (L.fromList $ L.drop (s - offset - n) tail)
-    | otherwise = normalize $ Root n (n - (1 `shiftL` bits)) h (takeTree n tree) (getTail (bits * (h - 1)) tree)
+    | n > offset = Root n offset h tree (L.fromList $ L.drop (s - n) tail)
+    | n <= tailSize = Root n 0 0 (Leaf V.empty) (getTail (bits * (h - 1)) tree)
+    | otherwise =
+        let sh = bits * (h - 1)
+        in normalize $ Root n ((n - 1) .&. complement mask) h (takeTree sh tree) (getTail sh tree)  -- n - 1 because if 'n .&. mask == 0', we need to subtract tailSize
   where
     -- index of the last element in the new vector
     index = n - 1
 
+    index' = index - tailSize
+
     takeTree sh (Internal v) =
-        let subIndex = index `shiftR` sh .&. mask
-            sub = takeTree (sh - bits) (v ! subIndex)
+        let subIndex = index' `shiftR` sh .&. mask
             new = V.take (subIndex + 1) v
-        in Internal $ V.modify (\v -> M.write v subIndex sub) new
-    takeTree _ (Leaf v) = Leaf $ V.take (index .&. mask + 1) v
+        in Internal $ V.modify (\v -> M.modify v (takeTree (sh - bits)) subIndex) new
+    takeTree _ (Leaf v) = Leaf v
 
     getTail sh (Internal v) = getTail (sh - bits) (v ! (index `shiftR` sh .&. mask))
-    getTail _ (Leaf v) = L.fromList . reverse $ toList v
+    getTail _ (Leaf v) = L.fromList . reverse . P.take (index .&. mask + 1) $ toList v
 
     normalize (Root s offset h (Internal v) tail)
         | length v == 1 = normalize $ Root s offset (h - 1) (v ! 0) tail
