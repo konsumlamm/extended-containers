@@ -244,12 +244,12 @@ snoc (Root s offset h tree tail) x
         index = offset `shiftR` sh .&. mask
     insertTail _ (Leaf _) = Leaf $ V.fromList (toList $ L.reverse tail)
 
--- | /O(1)/. The last element in the vector.
+-- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
 last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
 
--- | /O(log n)/.
+-- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
 unsnoc :: Vector a -> Maybe (Vector a, a)
 unsnoc Empty = Nothing
 unsnoc (Root s offset h tree (x :| tail))
@@ -275,7 +275,8 @@ unsnoc (Root s offset h tree (x :| tail))
         | length v == 1 = Root s offset (h - 1) (v ! 0) tail
     normalize v = v
 
--- | /O(log n)/. Take the first n elements of the vector.
+-- | /O(log n)/. Take the first n elements of the vector or the vector if n is larger than the length of the vector.
+-- Returns the empty vector if n is negative.
 take :: Int -> Vector a -> Vector a
 take _ Empty = Empty
 take n root@(Root s offset h tree tail)
@@ -410,10 +411,12 @@ unfoldl f acc = case f acc of
     Nothing -> empty
     Just (acc', x) -> snoc (unfoldl f acc') x
 
+-- /O(n)/. Takes two vectors and returns a vector of corresponding pairs.
 zip :: Vector a -> Vector b -> Vector (a, b)
 zip = zipWith (,)
 {-# INLINE zip #-}
 
+-- | /O(n)/. A generalized 'zip' zipping with a function.
 zipWith :: (a -> b -> c) -> Vector a -> Vector b -> Vector c
 zipWith f v1 v2
     | length v1 >= length v2 = snd $ mapAccumL f' (toList v1) v2
@@ -422,18 +425,20 @@ zipWith f v1 v2
     f' [] _ = error "unreachable"
     f' (x : xs) y = (xs, f x y)
 
+-- | /O(n)/. Takes three vectors and returns a vector of corresponding triples.
 zip3 :: Vector a -> Vector b -> Vector c -> Vector (a, b, c)
 zip3 = zipWith3 (,,)
 {-# INLINE zip3 #-}
 
+-- | /O(n)/. A generalized 'zip3' zipping with a function.
 zipWith3 :: (a -> b -> c -> d) -> Vector a -> Vector b -> Vector c -> Vector d
 zipWith3 f v1 v2 v3 = zipWith ($) (zipWith f v1 v2) v3
 
--- | /O(n)/.
+-- | /O(n)/. Transforms a vector of pairs into a vector of first components and a vector of second components.
 unzip :: Vector (a, b) -> (Vector a, Vector b)
 unzip v = (map fst v, map snd v)
 
--- | /O(n)/.
+-- | /O(n)/. Takes a vector of triples and returns three vectors, analogous to 'unzip'.
 unzip3 :: Vector (a, b, c) -> (Vector a, Vector b, Vector c)
 unzip3 v = (map fst3 v, map snd3 v, map trd3 v)
   where
@@ -441,6 +446,7 @@ unzip3 v = (map fst3 v, map snd3 v, map trd3 v)
     snd3 (_, y, _) = y
     trd3 (_, _, z) = z
 
+-- | /O(n)/. Create a list of index-value pairs from the vector.
 toIndexedList :: Vector a -> [(Int, a)]
 toIndexedList = foldrWithIndex (curry (:)) []
 {-# INLINE toIndexedList #-}
