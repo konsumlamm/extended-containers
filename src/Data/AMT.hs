@@ -33,11 +33,11 @@ module Data.AMT
 -- * Construction
 , empty, singleton, fromList
 
-, snoc
-, append
+, cons, (<|), uncons
+, snoc, (|>), unsnoc
 , last
-, unsnoc
 , take
+, append
 
 , lookup
 , (!?)
@@ -70,7 +70,7 @@ import Control.Monad.Zip (MonadZip(..))
 import Data.Bits
 import Data.Foldable (foldl', length, toList)
 import Data.Functor.Classes
-import Data.List.NonEmpty (NonEmpty(..), (!!), (<|))
+import Data.List.NonEmpty (NonEmpty(..), (!!))
 import qualified Data.List.NonEmpty as L
 import Data.Traversable (mapAccumL)
 import GHC.Exts (IsList)
@@ -84,6 +84,9 @@ import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
 
 import Data.Traversable.Utils (traverseAccumL)
+
+infixr 5 <|
+infixl 5 |>
 
 data Tree a = Internal !(V.Vector (Tree a))
             | Leaf !(V.Vector a)
@@ -224,11 +227,25 @@ singleton x = Root 1 0 0 (Leaf V.empty) (x :| [])
 fromList :: [a] -> Vector a
 fromList = foldl' snoc empty
 
+-- | /O(n * log n)/. Add an element to the left end of the vector.
+cons :: a -> Vector a -> Vector a
+cons x v = fromList $ x : toList v
+
+-- | /O(n * log n)/. Infix version of 'cons'.
+(<|) :: a -> Vector a -> Vector a
+(<|) = cons
+{-# INLINE (<|) #-}
+
+-- | /O(n * log n)/. The vector without the first element and the first element or 'Nothing' if the vector is empty.
+uncons :: Vector a -> Maybe (a, Vector a)
+uncons Empty = Nothing
+uncons v@(Root _ _ _ _ _) = let ls = toList v in Just (head ls, fromList $ P.tail ls)
+
 -- | /O(log n)/. Add an element to the right end of the vector.
 snoc :: Vector a -> a -> Vector a
 snoc Empty x = singleton x
 snoc (Root s offset h tree tail) x
-    | s .&. mask /= 0 = Root (s + 1) offset h tree (x <| tail)
+    | s .&. mask /= 0 = Root (s + 1) offset h tree (x L.<| tail)
     | offset == 0 = Root (s + 1) s (h + 1) (Leaf $ V.fromList (toList $ L.reverse tail)) (x :| [])
     | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) (x :| [])
     | otherwise = Root (s + 1) s h (insertTail (bits * (h - 1)) tree) (x :| [])
@@ -244,10 +261,10 @@ snoc (Root s offset h tree tail) x
         index = offset `shiftR` sh .&. mask
     insertTail _ (Leaf _) = Leaf $ V.fromList (toList $ L.reverse tail)
 
--- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
-last :: Vector a -> Maybe a
-last Empty = Nothing
-last (Root _ _ _ _ (x :| _)) = Just x
+-- | /O(log n)/. Infix version of 'snoc'.
+(|>) :: Vector a -> a -> Vector a
+(|>) = snoc
+{-# INLINE (|>) #-}
 
 -- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
 unsnoc :: Vector a -> Maybe (Vector a, a)
@@ -274,6 +291,11 @@ unsnoc (Root s offset h tree (x :| tail))
     normalize (Root s offset h (Internal v) tail)
         | length v == 1 = Root s offset (h - 1) (v ! 0) tail
     normalize v = v
+
+-- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
+last :: Vector a -> Maybe a
+last Empty = Nothing
+last (Root _ _ _ _ (x :| _)) = Just x
 
 -- | /O(log n)/. Take the first n elements of the vector or the vector if n is larger than the length of the vector.
 -- Returns the empty vector if n is negative.
