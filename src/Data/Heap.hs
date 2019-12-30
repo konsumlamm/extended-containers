@@ -44,6 +44,8 @@ module Data.Heap
 -- ** To Lists
 , smallestN
 , toAscList, toDescList
+-- * Heapsort
+, heapsort
 ) where
 
 import Prelude hiding (filter, map)

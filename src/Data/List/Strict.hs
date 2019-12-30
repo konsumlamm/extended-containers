@@ -17,26 +17,13 @@ module Data.List.Strict
 -- * Zipping
 , zip
 , zip3
-, zip4
-, zip5
-, zip6
-, zip7
 , zipWith
 , zipWith3
-, zipWith4
-, zipWith5
-, zipWith6
-, zipWith7
 , fromList
 ) where
 
 import Prelude hiding ((++), head, last, tail, init, map, reverse, concat, concatMap, takeWhile, dropWhile, lookup, filter, zip, zip3, zipWith, zipWith3)
 import Data.Foldable (toList)
-{-
-#ifdef __GLASGOW_HASKELL__
-import GHC.Exts (IsList)
-#endif
--}
 
 infixr 5 :!
 infixr 5 ++
@@ -100,11 +87,11 @@ last (x :! xs) = last xs
 -- | /O(1)/.
 tail :: List a -> List a
 tail Nil = errorEmpty "tail"
-tail (x :! xs) = xs
+tail (_ :! xs) = xs
 
 init :: List a -> List a
 init Nil = errorEmpty "init"
-init (x :! Nil) = Nil
+init (_ :! Nil) = Nil
 init (x :! xs) = x :! init xs
 
 -- | /O(1)/.
@@ -162,18 +149,6 @@ zip = zipWith (,)
 zip3 :: List a -> List b -> List c -> List (a, b, c)
 zip3 = zipWith3 (,,)
 
-zip4 :: List a -> List b -> List c -> List d -> List (a, b, c, d)
-zip4 = zipWith4 (,,,)
-
-zip5 :: List a -> List b -> List c -> List d -> List e -> List (a, b, c, d, e)
-zip5 = zipWith5 (,,,,)
-
-zip6 :: List a -> List b -> List c -> List d -> List e -> List f -> List (a, b, c, d, e, f)
-zip6 = zipWith6 (,,,,,)
-
-zip7 :: List a -> List b -> List c -> List d -> List e -> List f -> List g -> List (a, b, c, d, e, f, g)
-zip7 = zipWith7 (,,,,,,)
-
 zipWith :: (a -> b -> c) -> List a -> List b -> List c
 zipWith z (a :! as) (b :! bs) = z a b :! zipWith z as bs
 zipWith _ _ _ = Nil
@@ -181,22 +156,6 @@ zipWith _ _ _ = Nil
 zipWith3 :: (a -> b -> c -> d) -> List a -> List b -> List c -> List d
 zipWith3 z (a :! as) (b :! bs) (c :! cs) = z a b c :! zipWith3 z as bs cs
 zipWith3 _ _ _ _ = Nil
-
-zipWith4 :: (a -> b -> c -> d -> e) -> List a -> List b -> List c -> List d -> List e
-zipWith4 z (a :! as) (b :! bs) (c :! cs) (d :! ds) = z a b c d :! zipWith4 z as bs cs ds
-zipWith4 _ _ _ _ _ = Nil
-
-zipWith5 :: (a -> b -> c -> d -> e -> f) -> List a -> List b -> List c -> List d -> List e -> List f
-zipWith5 z (a :! as) (b :! bs) (c :! cs) (d :! ds) (e :! es) = z a b c d e :! zipWith5 z as bs cs ds es
-zipWith5 _ _ _ _ _ _ = Nil
-
-zipWith6 :: (a -> b -> c -> d -> e -> f -> g) -> List a -> List b -> List c -> List d -> List e -> List f -> List g
-zipWith6 z (a :! as) (b :! bs) (c :! cs) (d :! ds) (e :! es) (f :! fs) = z a b c d e f :! zipWith6 z as bs cs ds es fs
-zipWith6 _ _ _ _ _ _ _ = Nil
-
-zipWith7 :: (a -> b -> c -> d -> e -> f -> g -> h) -> List a -> List b -> List c -> List d -> List e -> List f -> List g -> List h
-zipWith7 z (a :! as) (b :! bs) (c :! cs) (d :! ds) (e :! es) (f :! fs) (g :! gs) = z a b c d e f g :! zipWith7 z as bs cs ds es fs gs
-zipWith7 _ _ _ _ _ _ _ _ = Nil
 
 
 -- | /O(n)/.

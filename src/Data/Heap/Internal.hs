@@ -24,6 +24,8 @@ module Data.Heap.Internal
 -- ** To Lists
 , smallestN
 , toAscList, toDescList
+-- * Heapsort
+, heapsort
 ) where
 
 import Data.Foldable (foldl', toList)
@@ -229,3 +231,7 @@ toDescList = go []
     go acc Leaf = acc
     go acc (Node _ _ x left right) = go (x : acc) (union left right)
 {-# INLINE toDescList #-}
+
+-- | /O(n * log n)/. Sort the elements of a list using a heap.
+heapsort :: Ord a => [a] -> [a]
+heapsort = toAscList . fromList
