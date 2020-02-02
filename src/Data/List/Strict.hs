@@ -1,4 +1,4 @@
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Data.List.Strict
 ( List(..)
@@ -9,11 +9,15 @@ module Data.List.Strict
 , init
 , uncons
 , map
+, filter
 , reverse
+, lookup
 , intersperse
 , intercalate
 , concat
 , concatMap
+, takeWhile
+, dropWhile
 -- * Zipping
 , zip
 , zip3
@@ -24,6 +28,8 @@ module Data.List.Strict
 
 import Prelude hiding ((++), head, last, tail, init, map, reverse, concat, concatMap, takeWhile, dropWhile, lookup, filter, zip, zip3, zipWith, zipWith3)
 import Data.Foldable (toList)
+import GHC.Exts (IsList)
+import qualified GHC.Exts as Exts
 
 infixr 5 :!
 infixr 5 ++
@@ -61,14 +67,13 @@ instance Monad List where
     xs >>= f = concatMap f xs
 
     fail _ = Nil
-{-
-#ifdef __GLASGOW_HASKELL__
+
 instance IsList (List a) where
     type Item (List a) = a
+
     fromList = fromList
+
     toList = toList
-#endif
--}
 
 (++) :: List a -> List a -> List a
 Nil ++ ys = ys
@@ -82,7 +87,7 @@ head (x :! _) = x
 last :: List a -> a
 last Nil = errorEmpty "last"
 last (x :! Nil) = x
-last (x :! xs) = last xs
+last (_ :! xs) = last xs
 
 -- | /O(1)/.
 tail :: List a -> List a
@@ -126,11 +131,11 @@ concatMap f = foldr (\x a -> f x ++ a) Nil
 
 
 takeWhile :: (a -> Bool) -> List a -> List a
-takewhile _ Nil = Nil
+takeWhile _ Nil = Nil
 takeWhile f (x :! xs) = if f x then x :! takeWhile f xs else Nil
 
 dropWhile :: (a -> Bool) -> List a -> List a
-dropwhile _ Nil = Nil
+dropWhile _ Nil = Nil
 dropWhile f ls@(x :! xs) = if f x then dropWhile f xs else ls
 
 
