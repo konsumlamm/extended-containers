@@ -29,37 +29,37 @@ The implementation of 'Vector' uses array mapped tries.
 -}
 
 module Data.AMT
-( Vector
--- * Construction
-, empty, singleton, fromList
-
-, cons, (<|), uncons
-, snoc, (|>), unsnoc
-, last
-, take
-, append
-
-, lookup
-, (!?)
-, update
-, adjust
-
-, map, mapWithIndex
-
-, foldMapWithIndex
-, foldlWithIndex, foldrWithIndex
-, foldlWithIndex', foldrWithIndex'
-, traverseWithIndex
-, indexed
-
-, unfoldr, unfoldl
--- * Zipping/Unzipping
-, zip, zipWith
-, zip3, zipWith3
-, unzip, unzip3
-
-, toIndexedList
-) where
+    ( Vector
+    -- * Construction
+    , empty, singleton, fromList
+    
+    , cons, (<|), uncons
+    , snoc, (|>), unsnoc
+    , last
+    , take
+    , append
+    
+    , lookup
+    , (!?)
+    , update
+    , adjust
+    
+    , map, mapWithIndex
+    
+    , foldMapWithIndex
+    , foldlWithIndex, foldrWithIndex
+    , foldlWithIndex', foldrWithIndex'
+    , traverseWithIndex
+    , indexed
+    
+    , unfoldr, unfoldl
+    -- * Zipping/Unzipping
+    , zip, zipWith
+    , zip3, zipWith3
+    , unzip, unzip3
+    
+    , toIndexedList
+    ) where
 
 import Control.Applicative (Alternative)
 import qualified Control.Applicative as Applicative
@@ -150,11 +150,11 @@ instance Foldable Vector where
     foldr _ acc Empty = acc
     foldr f acc (Root _ _ _ tree tail) = foldrTree tree (foldr f acc (L.reverse tail))
       where
-        foldrTree (Internal v) acc = foldr foldrTree acc v
-        foldrTree (Leaf v) acc = foldr f acc v
+        foldrTree (Internal v) acc' = foldr foldrTree acc' v
+        foldrTree (Leaf v) acc' = foldr f acc' v
 
     null Empty = True
-    null (Root _ _ _ _ _) = False
+    null Root{} = False
 
     length Empty = 0
     length (Root s _ _ _ _) = s
@@ -239,7 +239,9 @@ cons x v = fromList $ x : toList v
 -- | /O(n * log n)/. The vector without the first element and the first element or 'Nothing' if the vector is empty.
 uncons :: Vector a -> Maybe (a, Vector a)
 uncons Empty = Nothing
-uncons v@(Root _ _ _ _ _) = let ls = toList v in Just (head ls, fromList $ P.tail ls)
+uncons v@Root{} =
+    let ls = toList v
+     in Just (head ls, fromList $ P.tail ls)
 
 -- | /O(log n)/. Add an element to the right end of the vector.
 snoc :: Vector a -> a -> Vector a

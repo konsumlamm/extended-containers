@@ -1,4 +1,4 @@
-module Data.PrioHeap.Internal
+module Data.PrioHeap.Old
 ( PrioHeap(..)
 -- * Construction
 , empty, singleton
@@ -43,7 +43,7 @@ import Data.Functor.Classes
 import Prelude hiding (filter, map)
 import Text.Read (readPrec)
 
-import qualified Data.Heap.Internal as Heap
+import qualified Data.Heap.Old as Heap
 
 type Size = Int
 type Rank = Int
@@ -115,13 +115,10 @@ instance Foldable (PrioHeap k) where
     foldr f acc (Node _ _ _ x left right) = f x (foldr f (foldr f acc right) left)
 
     null Leaf = True
-    null (Node _ _ _ _ _ _) = False
+    null Node{} = False
 
     length = size
     {-# INLINE length #-}
-
-    minimum = snd . findMin
-    {-# INLINE minimum #-}
 
 -- | Traverses in an unspecified order.
 instance Traversable (PrioHeap k) where
@@ -312,7 +309,7 @@ adjustMinWithKey _ Leaf = Leaf
 adjustMinWithKey f (Node s r key x left right) =
     Node s r key (f key x) left right
 
--- | /O(1)/. The minimal element of the heap or 'Nothing' if the heap is empty. 
+-- | /O(1)/. The minimal element of the heap or 'Nothing' if the heap is empty.
 lookupMin :: PrioHeap k a -> Maybe (k, a)
 lookupMin Leaf = Nothing
 lookupMin (Node _ _ key x _ _) = Just (key, x)
