@@ -1,5 +1,9 @@
--- TODO: IsList instance?
--- TODO: takeWhile etc. (see psqueue, heap, heaps)?
+{-# LANGUAGE CPP #-}
+#ifdef __GLASGOW_HASKELL__
+{-# LANGUAGE TypeFamilies #-}
+#endif
+
+-- TODO: optimize elem?
 
 {- |
 = Finite priority heaps
@@ -19,7 +23,9 @@ Violation of this condition is not detected and if the length limit is exceeded,
 
 == Implementation
 
-The implementation of 'PrioHeap' uses leftist heaps.
+The implementation uses skew binomial heaps, as described in
+
+* Chris Okasaki, \"Purely Functional Data Structures\", 1998
 -}
 
 module Data.PrioHeap
@@ -39,10 +45,16 @@ module Data.PrioHeap
     , partition, partitionWithKey
     , mapMaybe, mapMaybeWithKey
     , mapEither, mapEitherWithKey
-    -- * Folds with key
+    -- * Folds
     , foldMapWithKey
     , foldlWithKey, foldrWithKey
     , foldlWithKey', foldrWithKey'
+    , foldMapOrd
+    , foldlOrd, foldrOrd
+    , foldlOrd', foldrOrd'
+    , foldMapWithKeyOrd
+    , foldlWithKeyOrd, foldrWithKeyOrd
+    , foldlWithKeyOrd', foldrWithKeyOrd'
     -- * Query
     , size
     -- * Min
@@ -53,10 +65,17 @@ module Data.PrioHeap
     , deleteFindMin
     , updateMin, updateMinWithKey
     , minView
+    -- * Subranges
+    , take
+    , drop
+    , splitAt
+    , takeWhile, takeWhileWithKey
+    , dropWhile, dropWhileWithKey
+    , span, spanWithKey
+    , break, breakWithKey
     -- * Conversion
     , keysHeap
     -- ** To Lists
-    -- TODO: smallestN?
     -- TODO: values, keys?
     , toList, toAscList, toDescList
     ) where
@@ -65,19 +84,23 @@ import Control.Exception (assert)
 import Data.Foldable (foldl', foldr')
 import Data.Functor.Classes
 import Data.Maybe (fromMaybe)
-import Prelude hiding (filter, map, reverse, uncurry)
+#ifdef __GLASGOW_HASKELL__
+import GHC.Exts (IsList)
+import qualified GHC.Exts as Exts
+#endif
+import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile, uncurry)
 import Text.Read (readPrec)
 
 import qualified Data.Heap.Internal as Heap
 import Data.List.Strict
 
--- TODO: instances
+type Size = Int
+type Rank = Int
+
 -- | A skew binomial heap with associated priorities.
-data PrioHeap k a = Empty | Heap {-# UNPACK #-} !Int !k a !(Forest k a)
+data PrioHeap k a = Empty | Heap {-# UNPACK #-} !Size !k a !(Forest k a)
 
 type Forest k a = List (Tree k a)
-
-type Rank = Int
 
 data Pair k a = Pair !k a
 
@@ -136,7 +159,7 @@ ins key x (t1 `Cons` t2 `Cons` ts)
     | _rank t1 == _rank t2 = key `seq` skewLink key x t1 t2 `Cons` ts
 ins key x ts = key `seq` Node 0 key x Nil Nil `Cons` ts
 
-fromForest :: Ord k => Int -> Forest k a -> PrioHeap k a
+fromForest :: Ord k => Size -> Forest k a -> PrioHeap k a
 fromForest _ Nil = Empty
 fromForest s f@(_ `Cons` _) =
     let (Node _ key x xs ts1, ts2) = removeMinTree f
@@ -202,8 +225,20 @@ instance Functor (PrioHeap k) where
     {-# INLINE fmap #-}
 
 instance Foldable (PrioHeap k) where
+    foldMap f = foldMapWithKey (const f)
+    {-# INLINE foldMap #-}
+
     foldr f = foldrWithKey (const f)
     {-# INLINE foldr #-}
+
+    foldl f = foldlWithKey (const . f)
+    {-# INLINE foldl #-}
+
+    foldr' f = foldrWithKey' (const f)
+    {-# INLINE foldr' #-}
+
+    foldl' f = foldlWithKey' (const . f)
+    {-# INLINE foldl' #-}
 
     null Empty = True
     null Heap{} = False
@@ -216,31 +251,45 @@ instance Traversable (PrioHeap k) where
     traverse f = traverseWithKey (const f)
     {-# INLINE traverse #-}
 
+#ifdef __GLASGOW_HASKELL__
+instance Ord k => IsList (PrioHeap k a) where
+    type Item (PrioHeap k a) = (k, a)
+
+    fromList = fromList
+    {-# INLINE fromList #-}
+
+    toList = toList
+    {-# INLINE toList #-}
+#endif
+
 
 -- | /O(1)/. The empty heap.
+--
+-- > empty = fromList []
 empty :: PrioHeap k a
 empty = Empty
 {-# INLINE empty #-}
 
 -- | /O(1)/. A heap with a single element.
+--
+-- > singleton x = fromList [x]
 singleton :: k -> a -> PrioHeap k a
 singleton k x = Heap 1 k x Nil
 {-# INLINE singleton #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. Create a heap from a list.
 fromList :: Ord k => [(k, a)] -> PrioHeap k a
 fromList = foldl' (\acc (key, x) -> insert key x acc) empty
 {-# INLINE fromList #-}
 
--- | /O(log n)/. Insert a new key and value into the heap.
+-- | /O(1)/. Insert a new key and value into the heap.
 insert :: Ord k => k -> a -> PrioHeap k a -> PrioHeap k a
 insert key x Empty = singleton key x
 insert kx x (Heap s ky y f)
     | kx <= ky = Heap (s + 1) kx x (ins ky y f)
     | otherwise = Heap (s + 1) ky y (ins kx x f)
 
--- TODO: correct complexity?
--- | /O(log(max(n, m)))/. The union of two heaps.
+-- | /O(log n)/. The union of two heaps.
 union :: Ord k => PrioHeap k a -> PrioHeap k a -> PrioHeap k a
 union heap Empty = heap
 union Empty heap = heap
@@ -336,37 +385,109 @@ mapEitherWithKey f = foldrWithKey f' (empty, empty)
         Right y -> (heap1, insert key y heap2)
 {-# INLINE mapEitherWithKey #-}
 
--- | /O(n)/. Fold the keys and values in the heap using the given monoid.
+-- | /O(n)/. Fold the keys and values in the heap, using the given monoid.
 foldMapWithKey :: Monoid m => (k -> a -> m) -> PrioHeap k a -> m
 foldMapWithKey f = foldrWithKey (\key x acc -> f key x <> acc) mempty
 {-# INLINE foldMapWithKey #-}
 
--- | /O(n)/. Fold the keys and values in the heap using the given left-associative function.
-foldlWithKey :: (b -> k -> a -> b) -> b -> PrioHeap k a -> b
-foldlWithKey _ acc Empty = acc
-foldlWithKey f acc (Heap _ key x forest) = foldl foldTree (f acc key x) forest
-  where
-    foldTree acc (Node _ key x xs c) = foldl foldTree (foldl (uncurry . f) (f acc key x) xs) c
-
--- | /O(n)/. Fold the keys and values in the heap using the given right-associative function.
+-- | /O(n)/. Fold the keys and values in the heap, using the given right-associative function.
 foldrWithKey :: (k -> a -> b -> b) -> b -> PrioHeap k a -> b
 foldrWithKey _ acc Empty = acc
 foldrWithKey f acc (Heap _ key x forest) = f key x (foldr foldTree acc forest)
   where
     foldTree (Node _ key x xs c) acc = f key x (foldr (uncurry f) (foldr foldTree acc c) xs)
 
--- | /O(n)/. A strict version of 'foldlWithKey'.
--- Each application of the function is evaluated before using the result in the next application. REDO!
-foldlWithKey' :: (b -> k -> a -> b) -> b -> PrioHeap k a -> b
-foldlWithKey' f acc = foldl' (\a (key, x) -> f a key x) acc . toList
+-- | /O(n)/. Fold the keys and values in the heap, using the given left-associative function.
+foldlWithKey :: (b -> k -> a -> b) -> b -> PrioHeap k a -> b
+foldlWithKey _ acc Empty = acc
+foldlWithKey f acc (Heap _ key x forest) = foldl foldTree (f acc key x) forest
+  where
+    foldTree acc (Node _ key x xs c) = foldl foldTree (foldl (uncurry . f) (f acc key x) xs) c
 
 -- | /O(n)/. A strict version of 'foldrWithKey'.
--- Each application of the function is evaluated before using the result in the next application. REDO!
+-- Each application of the function is evaluated before using the result in the next application.
 foldrWithKey' :: (k -> a -> b -> b) -> b -> PrioHeap k a -> b
-foldrWithKey' f acc = foldr' (\(key, x) a -> f key x a) acc . toList
+foldrWithKey' f acc h = foldlWithKey f' id h acc
+  where
+    f' k key x z = k $! f key x z
+{-# INLINE foldrWithKey' #-}
 
--- | /O(1)/.
-size :: PrioHeap k a -> Int
+-- | /O(n)/. A strict version of 'foldlWithKey'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldlWithKey' :: (b -> k -> a -> b) -> b -> PrioHeap k a -> b
+foldlWithKey' f acc h = foldrWithKey f' id h acc
+  where
+    f' key x k z = k $! f z key x
+{-# INLINE foldlWithKey' #-}
+
+-- | /O(n * log n)/. Fold the values in the heap in order, using the given monoid.
+foldMapOrd :: (Ord k, Monoid m) => (a -> m) -> PrioHeap k a -> m
+foldMapOrd f = foldMapWithKeyOrd (const f)
+{-# INLINE foldMapOrd #-}
+
+-- | /O(n * log n)/. Fold the values in the heap in order, using the given right-associative function.
+foldrOrd :: Ord k => (a -> b -> b) -> b -> PrioHeap k a -> b
+foldrOrd f = foldrWithKeyOrd (const f)
+{-# INLINE foldrOrd #-}
+
+-- | /O(n * log n)/. Fold the values in the heap in order, using the given left-associative function.
+foldlOrd :: Ord k => (b -> a -> b) -> b -> PrioHeap k a -> b
+foldlOrd f = foldlWithKeyOrd (const . f)
+{-# INLINE foldlOrd #-}
+
+-- | /O(n * log n)/. A strict version of 'foldrOrd'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldrOrd' :: Ord k => (a -> b -> b) -> b -> PrioHeap k a -> b
+foldrOrd' f = foldrWithKeyOrd' (const f)
+{-# INLINE foldrOrd' #-}
+
+-- | /O(n)/. A strict version of 'foldlOrd'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldlOrd' :: Ord k => (b -> a -> b) -> b -> PrioHeap k a -> b
+foldlOrd' f = foldlWithKeyOrd' (const . f)
+{-# INLINE foldlOrd' #-}
+
+-- | /O(n * log n)/. Fold the keys and values in the heap in order, using the given monoid.
+foldMapWithKeyOrd :: (Ord k, Monoid m) => (k -> a -> m) -> PrioHeap k a -> m
+foldMapWithKeyOrd f = foldrWithKeyOrd (\key x acc -> f key x <> acc) mempty
+{-# INLINE foldMapWithKeyOrd #-}
+
+-- | /O(n * log n)/. Fold the keys and values in the heap in order, using the given right-associative function.
+foldrWithKeyOrd :: Ord k => (k -> a -> b -> b) -> b -> PrioHeap k a -> b
+foldrWithKeyOrd f acc = go
+  where
+    go h = case minView h of
+        Nothing -> acc
+        Just ((key, x), h') -> f key x (go h')
+{-# INLINE foldrWithKeyOrd #-}
+
+-- | /O(n * log n)/. Fold the keys and values in the heap in order, using the given left-associative function.
+foldlWithKeyOrd :: Ord k => (b -> k -> a -> b) -> b -> PrioHeap k a -> b
+foldlWithKeyOrd f = go
+  where
+    go acc h = case minView h of
+        Nothing -> acc
+        Just ((key, x), h') -> go (f acc key x) h'
+{-# INLINE foldlWithKeyOrd #-}
+
+-- | /O(n * log n)/. A strict version of 'foldrWithKeyOrd'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldrWithKeyOrd' :: Ord k => (k -> a -> b -> b) -> b -> PrioHeap k a -> b
+foldrWithKeyOrd' f acc h = foldlWithKeyOrd f' id h acc
+  where
+    f' k key x z = k $! f key x z
+{-# INLINE foldrWithKeyOrd' #-}
+
+-- | /O(n)/. A strict version of 'foldlWithKeyOrd'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldlWithKeyOrd' :: Ord k => (b -> k -> a -> b) -> b -> PrioHeap k a -> b
+foldlWithKeyOrd' f acc h = foldrWithKeyOrd f' id h acc
+  where
+    f' key x k z = k $! f z key x
+{-# INLINE foldlWithKeyOrd' #-}
+
+-- | /O(1)/. The number of elements in the heap.
+size :: PrioHeap k a -> Size
 size Empty = 0
 size (Heap s _ _ _) = s
 {-# INLINE size #-}
@@ -381,12 +502,13 @@ adjustMinWithKey :: (k -> a -> a) -> PrioHeap k a -> PrioHeap k a
 adjustMinWithKey _ Empty = Empty
 adjustMinWithKey f (Heap s key x forest) = Heap s key (f key x) forest
 
+-- | /O(1)/. The minimal element in the heap or 'Nothing' if the heap is empty.
 lookupMin :: PrioHeap k a -> Maybe (k, a)
 lookupMin Empty = Nothing
 lookupMin (Heap _ key x _) = Just (key, x)
 {-# INLINE lookupMin #-}
 
--- | /O(1)/. The minimal element of the heap. Calls 'error' if the heap is empty.
+-- | /O(1)/. The minimal element in the heap. Calls 'error' if the heap is empty.
 findMin :: PrioHeap k a -> (k, a)
 findMin heap = fromMaybe (errorEmpty "findMin") (lookupMin heap)
 {-# INLINE findMin #-}
@@ -421,24 +543,95 @@ minView Empty = Nothing
 minView (Heap s key x f) = Just ((key, x), fromForest (s - 1) f)
 {-# INLINE minView #-}
 
+-- | /O(n * log n)/.
+--
+-- > take n heap = take n (toAscList heap)
+take :: Ord k => Int -> PrioHeap k a -> [(k, a)]
+take n h
+    | n <= 0 = []
+    | otherwise = case minView h of
+        Nothing -> []
+        Just (x, h') -> x : take (n - 1) h'
+
+-- | /O(n * log n)/.
+drop :: Ord k => Int -> PrioHeap k a -> PrioHeap k a
+drop n h
+    | n <= 0 = h
+    | otherwise = drop (n - 1) (deleteMin h)
+
+-- | /O(n * log n)/.
+splitAt :: Ord k => Int -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
+splitAt n h
+    | n <= 0 = ([], h)
+    | otherwise = case minView h of
+        Nothing -> ([], h)
+        Just (x, h') -> let (xs, h'') = splitAt (n - 1) h' in (x : xs, h'')
+
+-- | /O(n * log n)/.
+takeWhile :: Ord k => (a -> Bool) -> PrioHeap k a -> [(k, a)]
+takeWhile p = takeWhileWithKey (const p)
+{-# INLINE takeWhile #-}
+
+-- | /O(n * log n)/.
+takeWhileWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> [(k, a)]
+takeWhileWithKey p = go
+  where
+    go h = case minView h of
+        Nothing -> []
+        Just ((key, x), h') -> if p key x then (key, x) : go h' else []
+{-# INLINE takeWhileWithKey #-}
+
+-- | /O(n * log n)/.
+dropWhile :: Ord k => (a -> Bool) -> PrioHeap k a -> PrioHeap k a
+dropWhile p = dropWhileWithKey (const p)
+{-# INLINE dropWhile #-}
+
+-- | /O(n * log n)/.
+dropWhileWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> PrioHeap k a
+dropWhileWithKey p = go
+  where
+    go h = case minView h of
+        Nothing -> h
+        Just ((key, x), h') -> if p key x then go h' else h
+{-# INLINE dropWhileWithKey #-}
+
+-- | /O(n * log n)/.
+span :: Ord k => (a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
+span p = spanWithKey (const p)
+{-# INLINE span #-}
+
+-- | /O(n * log n)/.
+spanWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
+spanWithKey p = go
+  where
+    go h = case minView h of
+        Nothing -> ([], h)
+        Just ((key, x), h') -> if p key x
+            then let (xs, h'') = go h' in ((key, x) : xs, h'')
+            else ([], h)
+{-# INLINE spanWithKey #-}
+
+-- | /O(n * log n)/.
+break :: Ord k => (a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
+break p = span (not . p)
+{-# INLINE break #-}
+
+-- | /O(n * log n)/.
+breakWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
+breakWithKey p = spanWithKey (\key x -> not (p key x))
+{-# INLINE breakWithKey #-}
+
 -- | /O(n)/. Create a list of key/value pairs from the heap.
 toList :: PrioHeap k a -> [(k, a)]
 toList = foldrWithKey (\key x acc -> (key, x) : acc) []
 
 -- | /O(n * log n)/. Create an ascending list of key/value pairs from the heap.
 toAscList :: Ord k => PrioHeap k a -> [(k, a)]
-toAscList h = case minView h of
-    Nothing -> []
-    Just (x, h') -> x : toAscList h'
+toAscList = foldrWithKeyOrd (\key x acc -> (key, x) : acc) []
 
 -- | /O(n * log n)/. Create a descending list of key/value pairs from the heap.
 toDescList :: Ord k => PrioHeap k a -> [(k, a)]
-toDescList = go []
-  where
-    go acc h = case minView h of
-        Nothing -> acc
-        Just (x, h') -> go (x : acc) h'
-{-# INLINE toDescList #-}
+toDescList = foldlWithKeyOrd (\acc key x -> (key, x) : acc) []
 
 -- | /O(n)/. Create a heap from a 'Data.Heap.Heap' of keys and a function which computes the value for each key.
 fromHeap :: (k -> a) -> Heap.Heap k -> PrioHeap k a

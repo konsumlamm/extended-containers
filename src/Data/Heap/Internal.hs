@@ -1,5 +1,9 @@
--- TODO: IsList instance?
--- TODO: takeWhile etc. (see psqueue, heap, heaps)?
+{-# LANGUAGE CPP #-}
+#ifdef __GLASGOW_HASKELL__
+{-# LANGUAGE TypeFamilies #-}
+#endif
+
+-- TODO: optimize elem?
 
 module Data.Heap.Internal
     ( Heap(..)
@@ -15,6 +19,10 @@ module Data.Heap.Internal
     , map, mapMonotonic
     , filter
     , partition
+    -- * Ordered Folds
+    , foldMapOrd
+    , foldlOrd, foldrOrd
+    , foldlOrd', foldrOrd'
     -- * Query
     , size
     -- * Min
@@ -23,6 +31,14 @@ module Data.Heap.Internal
     , deleteMin
     , deleteFindMin
     , minView
+    -- * Subranges
+    , take
+    , drop
+    , splitAt
+    , takeWhile
+    , dropWhile
+    , span
+    , break
     -- * Conversion
     -- ** To Lists
     , toAscList, toDescList
@@ -34,17 +50,22 @@ import Control.Exception (assert)
 import Data.Foldable (foldl', toList)
 import Data.Functor.Classes
 import Data.Maybe (fromMaybe)
-import Prelude hiding (filter, map, reverse)
+#ifdef __GLASGOW_HASKELL__
+import GHC.Exts (IsList)
+import qualified GHC.Exts as Exts
+#endif
+import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile)
 import Text.Read (readPrec, readListPrec)
 
 import Data.List.Strict
 
+type Size = Int
+type Rank = Int
+
 -- | A skew binomial heap.
-data Heap a = Empty | Heap {-# UNPACK #-} !Int !a !(Forest a)
+data Heap a = Empty | Heap {-# UNPACK #-} !Size !a !(Forest a)
 
 type Forest a = List (Tree a)
-
-type Rank = Int
 
 data Tree a = Node
     { _rank :: {-# UNPACK #-} !Rank
@@ -102,7 +123,7 @@ ins x (t1 `Cons` t2 `Cons` ts)
     | _rank t1 == _rank t2 = x `seq` skewLink x t1 t2 `Cons` ts
 ins x ts = x `seq` Node 0 x Nil Nil `Cons` ts
 
-fromForest :: Ord a => Int -> Forest a -> Heap a
+fromForest :: Ord a => Size -> Forest a -> Heap a
 fromForest _ Nil = Empty
 fromForest s f@(_ `Cons` _) =
     let (Node _ x xs ts1, ts2) = removeMinTree f
@@ -155,31 +176,45 @@ instance Foldable Heap where
     minimum = findMin
     {-# INLINE minimum #-}
 
+#ifdef __GLASGOW_HASKELL__
+instance Ord a => IsList (Heap a) where
+    type Item (Heap a) = a
+
+    fromList = fromList
+    {-# INLINE fromList #-}
+
+    toList = toList
+    {-# INLINE toList #-}
+#endif
+
 
 -- | /O(1)/. The empty heap.
+--
+-- > empty = fromList []
 empty :: Heap a
 empty = Empty
 {-# INLINE empty #-}
 
 -- | /O(1)/. A heap with a single element.
+--
+-- > singleton x = fromList [x]
 singleton :: a -> Heap a
 singleton x = Heap 1 x Nil
 {-# INLINE singleton #-}
 
--- | /O(n * log n)/.
+-- | /O(n)/. Create a heap from a list.
 fromList :: Ord a => [a] -> Heap a
 fromList = foldl' (flip insert) empty
 {-# INLINE fromList #-}
 
--- | /O(log n)/.
+-- | /O(1)/. Insert a new value into the heap.
 insert :: Ord a => a -> Heap a -> Heap a
 insert x Empty = singleton x
 insert x (Heap s y f)
     | x <= y = Heap (s + 1) x (ins y f)
     | otherwise = Heap (s + 1) y (ins x f)
 
--- TODO: correct complexity?
--- | /O(log n)/.
+-- | /O(log n)/. The union of two heaps.
 union :: Ord a => Heap a -> Heap a -> Heap a
 union heap Empty = heap
 union Empty heap = heap
@@ -187,51 +222,98 @@ union (Heap s1 x1 f1) (Heap s2 x2 f2)
     | x1 <= x2 = Heap (s1 + s2) x1 (ins x2 (merge f1 f2))
     | otherwise = Heap (s1 + s2) x2 (ins x1 (merge f1 f2))
 
+-- | The union of a foldable of heaps.
+--
+-- > unions = foldl union empty
 unions :: (Foldable f, Ord a) => f (Heap a) -> Heap a
 unions = foldl' union empty
 {-# INLINE unions #-}
 
-map :: (Ord a, Ord b) => (a -> b) -> Heap a -> Heap b
+-- | /O(n)/. Map a function over the heap.
+map :: Ord b => (a -> b) -> Heap a -> Heap b
 map f = fromList . fmap f . toList
 {-# INLINE map #-}
 
+-- | /O(n)/, Map an increasing function over the heap. The precondition is not checked.
 mapMonotonic :: (a -> b) -> Heap a -> Heap b
 mapMonotonic _ Empty = Empty
 mapMonotonic f (Heap s x forest) = Heap s (f x) (fmap (fmap f) forest)
 {-# INLINE mapMonotonic #-}
 
+-- | /O(n)/. Filter all elements that satisfy the predicate.
 filter :: Ord a => (a -> Bool) -> Heap a -> Heap a
 filter f = foldl' (\acc x -> if f x then insert x acc else acc) empty
 {-# INLINE filter #-}
 
+-- | /O(n)/. Partition the heap into two heaps, one with all elements that satisfy the predicate
+-- and one with all elements that don't satisfy the predicate.
 partition :: Ord a => (a -> Bool) -> Heap a -> (Heap a, Heap a)
 partition f = foldl' (\(h1, h2) x -> if f x then (insert x h1, h2) else (h1, insert x h2)) (empty, empty)
 {-# INLINE partition #-}
 
--- | /O(1)/.
-size :: Heap a -> Int
+-- | /O(n * log n)/. Fold the values in the heap in order, using the given monoid.
+foldMapOrd :: (Ord a, Monoid m) => (a -> m) -> Heap a -> m
+foldMapOrd f = foldrOrd ((<>) . f) mempty
+
+-- | /O(n * log n)/. Fold the values in the heap in order, using the given right-associative function.
+foldrOrd :: Ord a => (a -> b -> b) -> b -> Heap a -> b
+foldrOrd f acc = go
+  where
+    go h = case minView h of
+        Nothing -> acc
+        Just (x, h') -> f x (go h')
+
+-- | /O(n * log n)/. Fold the values in the heap in order, using the given left-associative function.
+foldlOrd :: Ord a => (b -> a -> b) -> b -> Heap a -> b
+foldlOrd f = go
+  where
+    go acc h = case minView h of
+        Nothing -> acc
+        Just (x, h') -> go (f acc x) h'
+
+-- | /O(n * log n)/. A strict version of 'foldrOrd'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldrOrd' :: Ord a => (a -> b -> b) -> b -> Heap a -> b
+foldrOrd' f acc h = foldlOrd f' id h acc
+  where
+    f' k x z = k $! f x z
+{-# INLINE foldrOrd' #-}
+
+-- | /O(n)/. A strict version of 'foldlOrd'.
+-- Each application of the function is evaluated before using the result in the next application.
+foldlOrd' :: Ord a => (b -> a -> b) -> b -> Heap a -> b
+foldlOrd' f acc h = foldrOrd f' id h acc
+  where
+    f' x k z = k $! f z x
+{-# INLINE foldlOrd' #-}
+
+-- | /O(1)/. The number of elements in the heap.
+size :: Heap a -> Size
 size Empty = 0
 size (Heap s _ _) = s
 {-# INLINE size #-}
 
--- | /O(log n)/.
-findMin :: Ord a => Heap a -> a
+-- | /O(log n)/. The minimal element in the heap. Calls 'error' if the heap is empty.
+findMin :: Heap a -> a
 findMin Empty = error "findMin: empty heap"
 findMin (Heap _ x _) = x
 {-# INLINE findMin #-}
 
--- | /O(log n)/.
-lookupMin :: Ord a => Heap a -> Maybe a
+-- | /O(log n)/. The minimal element in the heap or 'Nothing' if the heap is empty.
+lookupMin :: Heap a -> Maybe a
 lookupMin Empty = Nothing
 lookupMin (Heap _ x _) = Just $! x
 {-# INLINE lookupMin #-}
 
--- | /O(log n)/.
+-- | /O(log n)/. Delete the minimal element. Returns the empty heap if the heap is empty.
 deleteMin :: Ord a => Heap a -> Heap a
 deleteMin Empty = Empty
 deleteMin (Heap s _ f) = fromForest (s - 1) f
 {-# INLINE deleteMin #-}
 
+-- | /O(log n)/. Delete and find the minimal element. Calls 'error' if the heap is empty.
+--
+-- > deleteFindMin heap = (findMin heap, deleteMin heap)
 deleteFindMin :: Ord a => Heap a -> (a, Heap a)
 deleteFindMin heap = fromMaybe (errorEmpty "deleteFindMin") (minView heap)
 {-# INLINE deleteFindMin #-}
@@ -242,22 +324,74 @@ minView Empty = Nothing
 minView (Heap s x f) = Just (x, fromForest (s - 1) f)
 {-# INLINE minView #-}
 
+-- | /O(n * log n)/. Retrieves the minimal element of the heap and the heap stripped of that element or 'Nothing' if the heap is empty.
+take :: Ord a => Int -> Heap a -> [a]
+take n h
+    | n <= 0 = []
+    | otherwise = case minView h of
+        Nothing -> []
+        Just (x, h') -> x : take (n - 1) h'
+
+-- | /O(n * log n)/.
+drop :: Ord a => Int -> Heap a -> Heap a
+drop n h
+    | n <= 0 = h
+    | otherwise = drop (n - 1) (deleteMin h)
+
+-- | /O(n * log n)/.
+splitAt :: Ord a => Int -> Heap a -> ([a], Heap a)
+splitAt n h
+    | n <= 0 = ([], h)
+    | otherwise = case minView h of
+        Nothing -> ([], h)
+        Just (x, h') -> let (xs, h'') = splitAt (n - 1) h' in (x : xs, h'')
+
+-- | /O(n * log n)/.
+takeWhile :: Ord a => (a -> Bool) -> Heap a -> [a]
+takeWhile p = go
+  where
+    go h = case minView h of
+        Nothing -> []
+        Just (x, h') -> if p x then x : go h' else []
+{-# INLINE takeWhile #-}
+
+-- | /O(n * log n)/.
+dropWhile :: Ord a => (a -> Bool) -> Heap a -> Heap a
+dropWhile p = go
+  where
+    go h = case minView h of
+        Nothing -> h
+        Just (x, h') -> if p x then go h' else h
+{-# INLINE dropWhile #-}
+
+-- | /O(n * log n)/.
+span :: Ord a => (a -> Bool) -> Heap a -> ([a], Heap a)
+span p = go
+  where
+    go h = case minView h of
+        Nothing -> ([], h)
+        Just (x, h') -> if p x
+            then let (xs, h'') = go h' in (x : xs, h'')
+            else ([], h)
+{-# INLINE span #-}
+
+-- | /O(n * log n)/.
+break :: Ord a => (a -> Bool) -> Heap a -> ([a], Heap a)
+break p = span (not . p)
+{-# INLINE break #-}
+
 -- | /O(n * log n)/. Create a descending list from the heap.
 toAscList :: Ord a => Heap a -> [a]
-toAscList h = case minView h of
-    Nothing -> []
-    Just (x, h') -> x : toAscList h'
+toAscList = foldrOrd (:) []
+{-# INLINE toAscList #-}
 
 -- | /O(n * log n)/. Create a descending list from the heap.
 toDescList :: Ord a => Heap a -> [a]
-toDescList = go []
-  where
-    go acc h = case minView h of
-        Nothing -> acc
-        Just (x, h') -> go (x : acc) h'
+toDescList = foldlOrd (flip (:)) []
 {-# INLINE toDescList #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. Sort a list using a heap.
+-- TODO: stable?
 heapsort :: Ord a => [a] -> [a]
 heapsort = toAscList . fromList
 {-# INLINE heapsort #-}

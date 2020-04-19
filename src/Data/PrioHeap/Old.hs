@@ -40,6 +40,7 @@ module Data.PrioHeap.Old
 
 import Data.Foldable (foldl', foldr')
 import Data.Functor.Classes
+import Data.Maybe (fromMaybe)
 import Prelude hiding (filter, map)
 import Text.Read (readPrec)
 
@@ -316,9 +317,7 @@ lookupMin (Node _ _ key x _ _) = Just (key, x)
 
 -- | /O(1)/. The minimal element of the heap. Calls 'error' if the heap is empty.
 findMin :: PrioHeap k a -> (k, a)
-findMin heap = case lookupMin heap of
-    Nothing -> errorEmpty "findMin"
-    Just res -> res
+findMin heap = fromMaybe (errorEmpty "findMin") (lookupMin heap)
 
 -- | /O(log n)/. Delete the minimal element. Returns the empty heap if the heap is empty.
 deleteMin :: Ord k => PrioHeap k a -> PrioHeap k a
@@ -329,9 +328,7 @@ deleteMin (Node _ _ _ _ left right) = union left right
 --
 -- > deleteFindMin heap = (findMin heap, deleteMin heap)
 deleteFindMin :: Ord k => PrioHeap k a -> ((k, a), PrioHeap k a)
-deleteFindMin heap = case minView heap of
-    Nothing -> errorEmpty "deleteFindMin"
-    Just res -> res
+deleteFindMin heap = fromMaybe (errorEmpty "deleteFindMin") (minView heap)
 
 -- | /O(log n)/. Update the value at the minimal key.
 updateMin :: Ord k => (a -> Maybe a) -> PrioHeap k a -> PrioHeap k a

@@ -17,7 +17,8 @@ Violation of this condition is not detected and if the length limit is exceeded,
 == Implementation
 
 The implementation uses skew binomial heaps, as described in
-* Chris Okasaki, \"/Purely functional data structures/\", 1998
+
+* Chris Okasaki, \"Purely Functional Data Structures\", 1998
 -}
 
 module Data.Heap
@@ -33,6 +34,10 @@ module Data.Heap
     , map, mapMonotonic
     , filter
     , partition
+    -- * Ordered Folds
+    , foldMapOrd
+    , foldlOrd, foldrOrd
+    , foldlOrd', foldrOrd'
     -- * Query
     , size
     -- * Min
@@ -41,6 +46,14 @@ module Data.Heap
     , deleteMin
     , deleteFindMin
     , minView
+    -- * Subranges
+    , take
+    , drop
+    , splitAt
+    , takeWhile
+    , dropWhile
+    , span
+    , break
     -- * Conversion
     -- ** To Lists
     , toAscList, toDescList
@@ -48,6 +61,6 @@ module Data.Heap
     , heapsort
     ) where
 
-import Prelude hiding (map, filter)
+import Prelude hiding (break, drop, dropWhile, filter, map, span, splitAt, take, takeWhile)
 
 import Data.Heap.Internal

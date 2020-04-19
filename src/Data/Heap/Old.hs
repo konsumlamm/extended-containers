@@ -36,6 +36,7 @@ import Text.Read (readListPrec, readPrec)
 
 type Size = Int
 type Rank = Int
+
 -- | A Leftist Heap.
 data Heap a = Leaf | Node {-# UNPACK #-} !Size {-# UNPACK #-} !Rank !a !(Heap a) !(Heap a)
 
@@ -178,7 +179,7 @@ member x (Node _ _ y left right)
     | otherwise = member x left || member x right
 
 -- | /O(1)/. The number of elements in the heap.
-size :: Heap a -> Size
+size :: Heap a -> Int
 size Leaf = 0
 size (Node s _ _ _ _) = s
 
@@ -203,7 +204,7 @@ deleteMin (Node _ _ _ left right) = left `union` right
 deleteFindMin :: Ord a => Heap a -> (a, Heap a)
 deleteFindMin heap = fromMaybe (errorEmpty "deleteFindMin") (minView heap)
 
--- | /O(log n)/.  Retrieves the minimal element of the heap and the heap stripped of that element or 'Nothing' if the heap is empty.
+-- | /O(log n)/. Retrieves the minimal element of the heap and the heap stripped of that element or 'Nothing' if the heap is empty.
 minView :: Ord a => Heap a -> Maybe (a, Heap a)
 minView Leaf = Nothing
 minView (Node _ _ x left right) = Just (x, left `union` right)

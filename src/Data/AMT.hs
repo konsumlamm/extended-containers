@@ -1,4 +1,7 @@
+{-# LANGUAGE CPP #-}
+#ifdef __GLASGOW_HASKELL__
 {-# LANGUAGE TypeFamilies #-}
+#endif
 
 {- |
 = Finite vectors
@@ -32,50 +35,57 @@ module Data.AMT
     ( Vector
     -- * Construction
     , empty, singleton, fromList
-    
-    , cons, (<|), uncons
-    , snoc, (|>), unsnoc
+    , fromFunction
+    , replicate, replicateA
+    , unfoldr, unfoldl, iterateN
+
+    , (<|), viewl
+    , (|>), viewr
     , last
     , take
     , append
-    
+
     , lookup
     , (!?)
     , update
     , adjust
-    
+
     , map, mapWithIndex
-    
+
     , foldMapWithIndex
     , foldlWithIndex, foldrWithIndex
     , foldlWithIndex', foldrWithIndex'
     , traverseWithIndex
     , indexed
-    
-    , unfoldr, unfoldl
     -- * Zipping/Unzipping
     , zip, zipWith
     , zip3, zipWith3
     , unzip, unzip3
-    
+
     , toIndexedList
     ) where
 
-import Control.Applicative (Alternative)
+import Control.Applicative (Alternative, liftA)
 import qualified Control.Applicative as Applicative
-import Control.Monad (MonadPlus(..))
+import Control.Monad (ap, MonadPlus(..))
 import Control.Monad.Fail (MonadFail(..))
 import Control.Monad.Zip (MonadZip(..))
 
 import Data.Bits
 import Data.Foldable (foldl', length, toList)
 import Data.Functor.Classes
+import Data.Functor.Identity
 import Data.List.NonEmpty (NonEmpty(..), (!!))
 import qualified Data.List.NonEmpty as L
+#ifdef __GLASGOW_HASKELL__
+import Data.String (IsString)
+#endif
 import Data.Traversable (mapAccumL)
+#ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
-import Prelude hiding ((!!), last, lookup, map, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
+#endif
+import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
 import qualified Prelude as P
 import Text.Read (readPrec)
 
@@ -88,15 +98,22 @@ import Data.Traversable.Utils (traverseAccumL)
 infixr 5 <|
 infixl 5 |>
 
-data Tree a = Internal !(V.Vector (Tree a))
-            | Leaf !(V.Vector a)
+data Tree a
+    = Internal !(V.Vector (Tree a))
+    | Leaf !(V.Vector a)
+
 -- | An Array Mapped Trie.
-data Vector a = Empty
-              | Root {-# UNPACK #-} !Int  -- size
-                     {-# UNPACK #-} !Int  -- offset (number of elements in the tree)
-                     {-# UNPACK #-} !Int  -- height (of the tree)
-                     !(Tree a)  -- tree
-                     !(NonEmpty a)  -- tail (reversed)
+data Vector a
+    = Empty
+    | Root
+        {-# UNPACK #-} !Int  -- size
+        {-# UNPACK #-} !Int  -- offset (number of elements in the tree)
+        {-# UNPACK #-} !Int  -- height (of the tree)
+        !(Tree a)  -- tree
+        !(NonEmpty a)  -- tail (reversed)
+
+errorNegativeLength :: String -> a
+errorNegativeLength s = error $ "AMT." ++ s ++ ": expected a nonnegative length"
 
 -- The number of bits used per level.
 bits :: Int
@@ -123,6 +140,7 @@ instance Read1 Vector where
 
 instance Read a => Read (Vector a) where
     readPrec = readPrec1
+    {-# INLINE readPrec #-}
 
 instance Eq1 Vector where
     liftEq f v1 v2 = length v1 == length v2 && liftEq f (toList v1) (toList v2)
@@ -155,9 +173,11 @@ instance Foldable Vector where
 
     null Empty = True
     null Root{} = False
+    {-# INLINE null #-}
 
     length Empty = 0
     length (Root s _ _ _ _) = s
+    {-# INLINE length #-}
 
 instance Functor Vector where
     fmap = map
@@ -171,11 +191,20 @@ instance Traversable Vector where
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
 
+#ifdef __GLASGOW_HASKELL__
 instance IsList (Vector a) where
     type Item (Vector a) = a
-    fromList = fromList
-    toList = toList
 
+    fromList = fromList
+    {-# INLINE fromList #-}
+
+    toList = toList
+    {-# INLINE toList #-}
+
+instance a ~ Char => IsString (Vector a) where
+    fromString = fromList
+    {-# INLINE fromString #-}
+#endif
 
 instance Applicative Vector where
     pure = singleton
@@ -222,31 +251,94 @@ empty = Empty
 -- > singleton x = fromList [x]
 singleton :: a -> Vector a
 singleton x = Root 1 0 0 (Leaf V.empty) (x :| [])
+{-# INLINE singleton #-}
 
 -- | /O(n * log n)/. Create a new vector from a list.
 fromList :: [a] -> Vector a
-fromList = foldl' snoc empty
+fromList = foldl' (|>) empty
+{-# INLINE fromList #-}
+
+-- | Create a new vector of the given length from a function.
+fromFunction :: Int -> (Int -> a) -> Vector a
+fromFunction n f = if n < 0 then errorNegativeLength "fromFunction" else go 0 empty
+  where
+    go i acc
+        | i < n = go (i + 1) (acc |> f i)
+        | otherwise = acc
+{-# INLINE fromFunction #-}
+
+-- | /O(n * log n)/. @replicate n x@ is a vector consisting of n copies of x.
+replicate :: Int -> a -> Vector a
+replicate n = if n < 0 then errorNegativeLength "replicate" else runIdentity . replicateA n . Identity
+{-# INLINE replicate #-}
+
+-- | @replicateA@ is an 'Applicative' version of 'replicate'.
+replicateA :: Applicative f => Int -> f a -> f (Vector a)
+replicateA n x = if n < 0 then errorNegativeLength "replicateA" else go 0 (pure empty)
+  where
+    go i acc
+        | i < n = go (i + 1) ((|>) <$> acc <*> x)
+        | otherwise = acc
+{-# INLINE replicateA #-}
+
+-- | /O(n * log n)/. Build a vector from left to right by repeatedly applying a function to a seed value.
+unfoldr :: (b -> Maybe (a, b)) -> b -> Vector a
+unfoldr f = go empty
+  where
+    go v acc = case f acc of
+        Nothing -> v
+        Just (x, acc') -> go (v |> x) acc'
+{-# INLINE unfoldr #-}
+
+-- | /O(n * log n)/. Build a vector from right to left by repeatedly applying a function to a seed value.
+unfoldl :: (b -> Maybe (b, a)) -> b -> Vector a
+unfoldl f = go
+  where
+    go acc = case f acc of
+        Nothing -> empty
+        Just (acc', x) -> go acc' |> x
+{-# INLINE unfoldl #-}
+
+newtype State s a = State { runState :: s -> (s, a) }
+
+instance Functor (State s) where
+    fmap = liftA
+    {-# INLINE fmap #-}
+
+instance Applicative (State s) where
+    pure x = State $ \s -> (s, x)
+    {-# INLINE pure #-}
+
+    (<*>) = ap
+    {-# INLINE (<*>) #-}
+
+instance Monad (State s) where
+    st >>= f = State $ \s -> let (s', x) = runState st s in runState (f x) s'
+    {-# INLINE (>>=) #-}
+
+execState :: State s a -> s -> a
+execState st x = snd $ runState st x
+
+-- | Constructs a vector by repeatedly applying a function to a seed value.
+iterateN :: Int -> (a -> a) -> a -> Vector a
+iterateN n f x = if n < 0 then errorNegativeLength "iterateN" else replicateA n (State (\y -> (f y, y))) `execState` x
+{-# INLINE iterateN #-}
 
 -- | /O(n * log n)/. Add an element to the left end of the vector.
-cons :: a -> Vector a -> Vector a
-cons x v = fromList $ x : toList v
-
--- | /O(n * log n)/. Infix version of 'cons'.
 (<|) :: a -> Vector a -> Vector a
-(<|) = cons
-{-# INLINE (<|) #-}
+x <| v = fromList $ x : toList v
 
 -- | /O(n * log n)/. The vector without the first element and the first element or 'Nothing' if the vector is empty.
-uncons :: Vector a -> Maybe (a, Vector a)
-uncons Empty = Nothing
-uncons v@Root{} =
+viewl :: Vector a -> Maybe (a, Vector a)
+viewl Empty = Nothing
+viewl v@Root{} =
     let ls = toList v
-     in Just (head ls, fromList $ P.tail ls)
+    in Just (head ls, fromList $ P.tail ls)
 
 -- | /O(log n)/. Add an element to the right end of the vector.
-snoc :: Vector a -> a -> Vector a
-snoc Empty x = singleton x
-snoc (Root s offset h tree tail) x
+(|>) :: Vector a -> a -> Vector a
+Empty |> x = singleton x
+Root s offset h tree tail |> x
     | s .&. mask /= 0 = Root (s + 1) offset h tree (x L.<| tail)
     | offset == 0 = Root (s + 1) s (h + 1) (Leaf $ V.fromList (toList $ L.reverse tail)) (x :| [])
     | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) (x :| [])
@@ -263,15 +355,10 @@ snoc (Root s offset h tree tail) x
         index = offset `shiftR` sh .&. mask
     insertTail _ (Leaf _) = Leaf $ V.fromList (toList $ L.reverse tail)
 
--- | /O(log n)/. Infix version of 'snoc'.
-(|>) :: Vector a -> a -> Vector a
-(|>) = snoc
-{-# INLINE (|>) #-}
-
 -- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
-unsnoc :: Vector a -> Maybe (Vector a, a)
-unsnoc Empty = Nothing
-unsnoc (Root s offset h tree (x :| tail))
+viewr :: Vector a -> Maybe (Vector a, a)
+viewr Empty = Nothing
+viewr (Root s offset h tree (x :| tail))
     | not (null tail) = Just (Root (s - 1) offset h tree (L.fromList tail), x)
     | s == 1 = Just (Empty, x)
     | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf V.empty) (getTail tree), x)
@@ -298,6 +385,7 @@ unsnoc (Root s offset h tree (x :| tail))
 last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
+{-# INLINE last #-}
 
 -- | /O(log n)/. Take the first n elements of the vector or the vector if n is larger than the length of the vector.
 -- Returns the empty vector if n is negative.
@@ -344,6 +432,7 @@ lookup i (Root s offset h tree tail)
 -- | /O(log n)/. Flipped version of 'lookup'.
 (!?) :: Vector a -> Int -> Maybe a
 (!?) = flip lookup
+{-# INLINE (!?) #-}
 
 -- | /O(log n)/. Update the element at the index with a new element.
 -- Returns the original vector if the index is out of range.
@@ -371,7 +460,8 @@ adjust i f root@(Root s offset h tree tail)
 append :: Vector a -> Vector a -> Vector a
 append Empty v = v
 append v Empty = v
-append v1 v2 = foldl' snoc v1 v2
+append v1 v2 = foldl' (|>) v1 v2
+{-# INLINE append #-}
 
 -- | /O(n)/. Map a function over the vector.
 map :: (a -> b) -> Vector a -> Vector b
@@ -385,31 +475,33 @@ map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
 mapWithIndex :: (Int -> a -> b) -> Vector a -> Vector b
 mapWithIndex f = snd . mapAccumL (\i x -> (i + 1, f i x)) 0
 
--- | /O(n)/. Fold using the given monoid.
+-- | /O(n)/. Fold the values in the vector, using the given monoid.
 foldMapWithIndex :: Monoid m => (Int -> a -> m) -> Vector a -> m
 foldMapWithIndex f = foldrWithIndex (\i -> mappend . f i) mempty
 
 -- | /O(n)/. Fold using the given left-associative function that has access to the index of an element.
 foldlWithIndex :: (b -> Int -> a -> b) -> b -> Vector a -> b
-foldlWithIndex f z0 v = foldl (\g x i -> i `seq` f (g (i - 1)) i x) (const z0) v (length v - 1)
+foldlWithIndex f acc v = foldl (\g x i -> i `seq` f (g (i - 1)) i x) (const acc) v (length v - 1)
 
 -- | /O(n)/. Fold using the given right-associative function that has access to the index of an element.
 foldrWithIndex :: (Int -> a -> b -> b) -> b -> Vector a -> b
-foldrWithIndex f z0 v = foldr (\x g i -> i `seq` f i x (g (i + 1))) (const z0) v 0
+foldrWithIndex f acc v = foldr (\x g i -> i `seq` f i x (g (i + 1))) (const acc) v 0
 
 -- | /O(n)/. A strict version of 'foldlWithIndex'.
 -- Each application of the function is evaluated before using the result in the next application.
 foldlWithIndex' :: (b -> Int -> a -> b) -> b -> Vector a -> b
-foldlWithIndex' f z0 v = foldrWithIndex f' id v z0
+foldlWithIndex' f acc v = foldrWithIndex f' id v acc
   where
     f' i x k z = k $! f z i x
+{-# INLINE foldlWithIndex' #-}
 
 -- | /O(n)/. A strict version of 'foldrWithIndex'.
 -- Each application of the function is evaluated before using the result in the next application.
 foldrWithIndex' :: (Int -> a -> b -> b) -> b -> Vector a -> b
-foldrWithIndex' f z0 v = foldlWithIndex f' id v z0
+foldrWithIndex' f acc v = foldlWithIndex f' id v acc
   where
     f' k i x z = k $! f i x z
+{-# INLINE foldrWithIndex' #-}
 
 -- | /O(n)/. Traverse the vector with a function that has access to the index of an element.
 traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector b)
@@ -420,22 +512,7 @@ indexed :: Vector a -> Vector (Int, a)
 indexed = mapWithIndex (,)
 {-# INLINE indexed #-}
 
--- | /O(n * log n)/. Build a vector from left to right by repeatedly applying a function to a seed value.
-unfoldr :: (b -> Maybe (a, b)) -> b -> Vector a
-unfoldr f = go empty
-  where
-    go v acc = case f acc of
-        Nothing -> v
-        Just (x, acc') -> go (snoc v x) acc'
-{-# INLINE unfoldr #-}
-
--- | /O(n * log n)/. Build a vector from right to left by repeatedly applying a function to a seed value.
-unfoldl :: (b -> Maybe (b, a)) -> b -> Vector a
-unfoldl f acc = case f acc of
-    Nothing -> empty
-    Just (acc', x) -> snoc (unfoldl f acc') x
-
--- /O(n)/. Takes two vectors and returns a vector of corresponding pairs.
+-- | /O(n)/. Takes two vectors and returns a vector of corresponding pairs.
 zip :: Vector a -> Vector b -> Vector (a, b)
 zip = zipWith (,)
 {-# INLINE zip #-}
@@ -461,6 +538,7 @@ zipWith3 f v1 v2 v3 = zipWith ($) (zipWith f v1 v2) v3
 -- | /O(n)/. Transforms a vector of pairs into a vector of first components and a vector of second components.
 unzip :: Vector (a, b) -> (Vector a, Vector b)
 unzip v = (map fst v, map snd v)
+{-# INLINE unzip #-}
 
 -- | /O(n)/. Takes a vector of triples and returns three vectors, analogous to 'unzip'.
 unzip3 :: Vector (a, b, c) -> (Vector a, Vector b, Vector c)
@@ -469,6 +547,7 @@ unzip3 v = (map fst3 v, map snd3 v, map trd3 v)
     fst3 (x, _, _) = x
     snd3 (_, y, _) = y
     trd3 (_, _, z) = z
+{-# INLINE unzip3 #-}
 
 -- | /O(n)/. Create a list of index-value pairs from the vector.
 toIndexedList :: Vector a -> [(Int, a)]
