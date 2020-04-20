@@ -3,8 +3,6 @@
 {-# LANGUAGE TypeFamilies #-}
 #endif
 
--- TODO: optimize elem?
-
 {- |
 = Finite priority heaps
 
@@ -57,6 +55,7 @@ module Data.PrioHeap
     , foldlWithKeyOrd', foldrWithKeyOrd'
     -- * Query
     , size
+    , member, notMember
     -- * Min
     , adjustMin, adjustMinWithKey
     , lookupMin
@@ -73,6 +72,7 @@ module Data.PrioHeap
     , dropWhile, dropWhileWithKey
     , span, spanWithKey
     , break, breakWithKey
+    , nub
     -- * Conversion
     , keysHeap
     -- ** To Lists
@@ -94,18 +94,21 @@ import Text.Read (readPrec)
 import qualified Data.Heap.Internal as Heap
 import Data.List.Strict
 
-type Size = Int
-type Rank = Int
-
 -- | A skew binomial heap with associated priorities.
-data PrioHeap k a = Empty | Heap {-# UNPACK #-} !Size !k a !(Forest k a)
+data PrioHeap k a
+    = Empty
+    | Heap
+        {-# UNPACK #-} !Int  -- size
+        !k  -- root key
+        a  -- root value
+        !(Forest k a)  -- forest
 
 type Forest k a = List (Tree k a)
 
 data Pair k a = Pair !k a
 
 data Tree k a = Node
-    { _rank :: {-# UNPACK #-} !Rank
+    { _rank :: {-# UNPACK #-} !Int
     , _root :: !k
     , _value :: a
     , _elements :: !(List (Pair k a))
@@ -159,7 +162,7 @@ ins key x (t1 `Cons` t2 `Cons` ts)
     | _rank t1 == _rank t2 = key `seq` skewLink key x t1 t2 `Cons` ts
 ins key x ts = key `seq` Node 0 key x Nil Nil `Cons` ts
 
-fromForest :: Ord k => Size -> Forest k a -> PrioHeap k a
+fromForest :: Ord k => Int -> Forest k a -> PrioHeap k a
 fromForest _ Nil = Empty
 fromForest s f@(_ `Cons` _) =
     let (Node _ key x xs ts1, ts2) = removeMinTree f
@@ -487,10 +490,21 @@ foldlWithKeyOrd' f acc h = foldrWithKeyOrd f' id h acc
 {-# INLINE foldlWithKeyOrd' #-}
 
 -- | /O(1)/. The number of elements in the heap.
-size :: PrioHeap k a -> Size
+size :: PrioHeap k a -> Int
 size Empty = 0
 size (Heap s _ _ _) = s
 {-# INLINE size #-}
+
+-- | /O(n)/. Is the key a member of the heap?
+member :: Ord k => k -> PrioHeap k a -> Bool
+member _ Empty = False
+member kx (Heap _ ky _ forest) = kx <= ky && any (kx `elemTree`) forest
+  where
+    kx `elemTree` (Node _ ky _ ys c) = kx <= ky && (any (\(Pair a _) -> kx == a) ys || any (kx `elemTree`) c)
+
+-- | /O(n)/. IS the value not a member of the heap?
+notMember :: Ord k => k -> PrioHeap k a -> Bool
+notMember key = not . member key
 
 -- | /O(1)/. Adjust the value at the minimal key.
 adjustMin :: (a -> a) -> PrioHeap k a -> PrioHeap k a
@@ -543,7 +557,7 @@ minView Empty = Nothing
 minView (Heap s key x f) = Just ((key, x), fromForest (s - 1) f)
 {-# INLINE minView #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @take n heap@ takes the @n@ smallest elements of @heap@, in ascending order.
 --
 -- > take n heap = take n (toAscList heap)
 take :: Ord k => Int -> PrioHeap k a -> [(k, a)]
@@ -553,13 +567,13 @@ take n h
         Nothing -> []
         Just (x, h') -> x : take (n - 1) h'
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @drop n heap@ drops the @n@ smallest elements from @heap@.
 drop :: Ord k => Int -> PrioHeap k a -> PrioHeap k a
 drop n h
     | n <= 0 = h
     | otherwise = drop (n - 1) (deleteMin h)
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @splitAt n heap@ takes and drops the @n@ smallest elements from @heap@.
 splitAt :: Ord k => Int -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
 splitAt n h
     | n <= 0 = ([], h)
@@ -567,12 +581,12 @@ splitAt n h
         Nothing -> ([], h)
         Just (x, h') -> let (xs, h'') = splitAt (n - 1) h' in (x : xs, h'')
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @takeWhile p heap@ takes the elements from @heap@ in ascending order, while @p@ holds.
 takeWhile :: Ord k => (a -> Bool) -> PrioHeap k a -> [(k, a)]
 takeWhile p = takeWhileWithKey (const p)
 {-# INLINE takeWhile #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @takeWhileWithKey p heap@ takes the elements from @heap@ in ascending order, while @p@ holds.
 takeWhileWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> [(k, a)]
 takeWhileWithKey p = go
   where
@@ -581,12 +595,12 @@ takeWhileWithKey p = go
         Just ((key, x), h') -> if p key x then (key, x) : go h' else []
 {-# INLINE takeWhileWithKey #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @dropWhile p heap@ drops the elements from @heap@ in ascending order, while @p@ holds.
 dropWhile :: Ord k => (a -> Bool) -> PrioHeap k a -> PrioHeap k a
 dropWhile p = dropWhileWithKey (const p)
 {-# INLINE dropWhile #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @dropWhileWithKey p heap@ drops the elements from @heap@ in ascending order, while @p@ holds.
 dropWhileWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> PrioHeap k a
 dropWhileWithKey p = go
   where
@@ -595,12 +609,12 @@ dropWhileWithKey p = go
         Just ((key, x), h') -> if p key x then go h' else h
 {-# INLINE dropWhileWithKey #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @span p heap@ takes and drops the elements from @heap@, while @p@ holds
 span :: Ord k => (a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
 span p = spanWithKey (const p)
 {-# INLINE span #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @spanWithKey p heap@ takes and drops the elements from @heap@, while @p@ holds
 spanWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
 spanWithKey p = go
   where
@@ -611,15 +625,21 @@ spanWithKey p = go
             else ([], h)
 {-# INLINE spanWithKey #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @span@, but with inverted predicate.
 break :: Ord k => (a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
 break p = span (not . p)
 {-# INLINE break #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @spanWithKey@, but with inverted predicate.
 breakWithKey :: Ord k => (k -> a -> Bool) -> PrioHeap k a -> ([(k, a)], PrioHeap k a)
 breakWithKey p = spanWithKey (\key x -> not (p key x))
 {-# INLINE breakWithKey #-}
+
+-- | /O(n * log n)/. Remove duplicate elements from the heap.
+nub :: Ord k => PrioHeap k a -> PrioHeap k a
+nub h = case minView h of
+    Nothing -> Empty
+    Just ((key, x), h') -> insert key x (nub (dropWhileWithKey (const . (== key)) h'))
 
 -- | /O(n)/. Create a list of key/value pairs from the heap.
 toList :: PrioHeap k a -> [(k, a)]

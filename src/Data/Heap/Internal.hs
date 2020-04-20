@@ -3,8 +3,6 @@
 {-# LANGUAGE TypeFamilies #-}
 #endif
 
--- TODO: optimize elem?
-
 module Data.Heap.Internal
     ( Heap(..)
     , Tree(..)
@@ -25,6 +23,7 @@ module Data.Heap.Internal
     , foldlOrd', foldrOrd'
     -- * Query
     , size
+    , member, notMember
     -- * Min
     , lookupMin
     , findMin
@@ -39,6 +38,7 @@ module Data.Heap.Internal
     , dropWhile
     , span
     , break
+    , nub
     -- * Conversion
     -- ** To Lists
     , toAscList, toDescList
@@ -59,16 +59,18 @@ import Text.Read (readPrec, readListPrec)
 
 import Data.List.Strict
 
-type Size = Int
-type Rank = Int
-
 -- | A skew binomial heap.
-data Heap a = Empty | Heap {-# UNPACK #-} !Size !a !(Forest a)
+data Heap a
+    = Empty
+    | Heap
+        {-# UNPACK #-} !Int  -- size
+        !a  -- root
+        !(Forest a)  -- forest
 
 type Forest a = List (Tree a)
 
 data Tree a = Node
-    { _rank :: {-# UNPACK #-} !Rank
+    { _rank :: {-# UNPACK #-} !Int
     , _root :: !a
     , _elements :: !(List a)
     , _children :: !(Forest a)
@@ -123,7 +125,7 @@ ins x (t1 `Cons` t2 `Cons` ts)
     | _rank t1 == _rank t2 = x `seq` skewLink x t1 t2 `Cons` ts
 ins x ts = x `seq` Node 0 x Nil Nil `Cons` ts
 
-fromForest :: Ord a => Size -> Forest a -> Heap a
+fromForest :: Ord a => Int -> Forest a -> Heap a
 fromForest _ Nil = Empty
 fromForest s f@(_ `Cons` _) =
     let (Node _ x xs ts1, ts2) = removeMinTree f
@@ -288,10 +290,21 @@ foldlOrd' f acc h = foldrOrd f' id h acc
 {-# INLINE foldlOrd' #-}
 
 -- | /O(1)/. The number of elements in the heap.
-size :: Heap a -> Size
+size :: Heap a -> Int
 size Empty = 0
 size (Heap s _ _) = s
 {-# INLINE size #-}
+
+-- | /O(n)/. Is the value a member of the heap?
+member :: Ord a => a -> Heap a -> Bool
+member _ Empty = False
+member x (Heap _ y forest) = x <= y && any (x `elemTree`) forest
+  where
+    x `elemTree` (Node _ y ys c) = x <= y && (x `elem` ys || any (x `elemTree`) c)
+
+-- | /O(n)/. IS the value not a member of the heap?
+notMember :: Ord a => a -> Heap a -> Bool
+notMember x = not . member x
 
 -- | /O(log n)/. The minimal element in the heap. Calls 'error' if the heap is empty.
 findMin :: Heap a -> a
@@ -318,13 +331,15 @@ deleteFindMin :: Ord a => Heap a -> (a, Heap a)
 deleteFindMin heap = fromMaybe (errorEmpty "deleteFindMin") (minView heap)
 {-# INLINE deleteFindMin #-}
 
--- | /O(log n)/.
+-- | /O(log n)/. Retrieves the minimal element of the heap and the heap stripped of that element or 'Nothing' if the heap is empty.
 minView :: Ord a => Heap a -> Maybe (a, Heap a)
 minView Empty = Nothing
 minView (Heap s x f) = Just (x, fromForest (s - 1) f)
 {-# INLINE minView #-}
 
--- | /O(n * log n)/. Retrieves the minimal element of the heap and the heap stripped of that element or 'Nothing' if the heap is empty.
+-- | /O(n * log n)/. @take n heap@ takes the @n@ smallest elements of @heap@, in ascending order.
+--
+-- > take n heap = take n (toAscList heap)
 take :: Ord a => Int -> Heap a -> [a]
 take n h
     | n <= 0 = []
@@ -332,13 +347,15 @@ take n h
         Nothing -> []
         Just (x, h') -> x : take (n - 1) h'
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @drop n heap@ drops the @n@ smallest elements from @heap@.
 drop :: Ord a => Int -> Heap a -> Heap a
 drop n h
     | n <= 0 = h
     | otherwise = drop (n - 1) (deleteMin h)
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @splitAt n heap@ takes and drops the @n@ smallest elements from @heap@.
+--
+-- > splitAt n heap = (take n heap, drop n heap)
 splitAt :: Ord a => Int -> Heap a -> ([a], Heap a)
 splitAt n h
     | n <= 0 = ([], h)
@@ -346,7 +363,7 @@ splitAt n h
         Nothing -> ([], h)
         Just (x, h') -> let (xs, h'') = splitAt (n - 1) h' in (x : xs, h'')
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @takeWhile p heap@ takes the elements from @heap@ in ascending order, while @p@ holds.
 takeWhile :: Ord a => (a -> Bool) -> Heap a -> [a]
 takeWhile p = go
   where
@@ -355,7 +372,7 @@ takeWhile p = go
         Just (x, h') -> if p x then x : go h' else []
 {-# INLINE takeWhile #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @dropWhile p heap@ drops the elements from @heap@ in ascending order, while @p@ holds.
 dropWhile :: Ord a => (a -> Bool) -> Heap a -> Heap a
 dropWhile p = go
   where
@@ -364,7 +381,9 @@ dropWhile p = go
         Just (x, h') -> if p x then go h' else h
 {-# INLINE dropWhile #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @span p heap@ takes and drops the elements from @heap@, while @p@ holds
+--
+-- > span p heap = (takeWhile p heap, dropWhile p heap)
 span :: Ord a => (a -> Bool) -> Heap a -> ([a], Heap a)
 span p = go
   where
@@ -375,10 +394,18 @@ span p = go
             else ([], h)
 {-# INLINE span #-}
 
--- | /O(n * log n)/.
+-- | /O(n * log n)/. @span@, but with inverted predicate.
+--
+-- > break p = span (not . p)
 break :: Ord a => (a -> Bool) -> Heap a -> ([a], Heap a)
 break p = span (not . p)
 {-# INLINE break #-}
+
+-- | /O(n * log n)/. Remove duplicate elements from the heap.
+nub :: Ord a => Heap a -> Heap a
+nub h = case minView h of
+    Nothing -> Empty
+    Just (x, h') -> insert x (nub (dropWhile (== x) h'))
 
 -- | /O(n * log n)/. Create a descending list from the heap.
 toAscList :: Ord a => Heap a -> [a]
