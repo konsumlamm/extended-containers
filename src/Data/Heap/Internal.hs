@@ -57,7 +57,7 @@ import qualified GHC.Exts as Exts
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile)
 import Text.Read (readPrec, readListPrec)
 
-import Data.List.Strict
+import Util.Internal.StrictList
 
 -- | A skew binomial heap.
 data Heap a
@@ -302,7 +302,7 @@ member x (Heap _ y forest) = x <= y && any (x `elemTree`) forest
   where
     x `elemTree` (Node _ y ys c) = x <= y && (x `elem` ys || any (x `elemTree`) c)
 
--- | /O(n)/. IS the value not a member of the heap?
+-- | /O(n)/. Is the value not a member of the heap?
 notMember :: Ord a => a -> Heap a -> Bool
 notMember x = not . member x
 
@@ -417,8 +417,7 @@ toDescList :: Ord a => Heap a -> [a]
 toDescList = foldlOrd (flip (:)) []
 {-# INLINE toDescList #-}
 
--- | /O(n * log n)/. Sort a list using a heap.
--- TODO: stable?
+-- | /O(n * log n)/. Sort a list using a heap. The sort is unstable.
 heapsort :: Ord a => [a] -> [a]
 heapsort = toAscList . fromList
 {-# INLINE heapsort #-}

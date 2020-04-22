@@ -6,8 +6,7 @@ A 'Heap' is strict in its spine. Unlike with sets, duplicate elements are allowe
 
 == Performance
 
-The running time complexities are given, with /n/ referring the the number of elements in the heap.
-The given running times are worst case.
+The worst case running time complexities are given, with /n/ referring the the number of elements in the heap.
 
 == Warning
 
@@ -40,6 +39,7 @@ module Data.Heap
     , foldlOrd', foldrOrd'
     -- * Query
     , size
+    , member, notMember
     -- * Min
     , lookupMin
     , findMin
@@ -54,6 +54,7 @@ module Data.Heap
     , dropWhile
     , span
     , break
+    , nub
     -- * Conversion
     -- ** To Lists
     , toAscList, toDescList

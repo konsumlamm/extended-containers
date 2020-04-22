@@ -1,4 +1,4 @@
-module Data.List.Strict
+module Util.Internal.StrictList
     ( List(..)
     , reverse
     ) where

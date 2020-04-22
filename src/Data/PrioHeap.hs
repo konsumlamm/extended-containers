@@ -11,8 +11,7 @@ A 'PrioHeap' is strict in its spine. Unlike with maps, duplicate keys/priorities
 
 == Performance
 
-The running time complexities are given, with /n/ referring the the number of elements in the heap.
-The given running times are worst case.
+The worst case running time complexities are given, with /n/ referring the the number of elements in the heap.
 
 == Warning
 
@@ -76,7 +75,6 @@ module Data.PrioHeap
     -- * Conversion
     , keysHeap
     -- ** To Lists
-    -- TODO: values, keys?
     , toList, toAscList, toDescList
     ) where
 
@@ -92,7 +90,7 @@ import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, split
 import Text.Read (readPrec)
 
 import qualified Data.Heap.Internal as Heap
-import Data.List.Strict
+import Util.Internal.StrictList
 
 -- | A skew binomial heap with associated priorities.
 data PrioHeap k a
@@ -502,7 +500,7 @@ member kx (Heap _ ky _ forest) = kx <= ky && any (kx `elemTree`) forest
   where
     kx `elemTree` (Node _ ky _ ys c) = kx <= ky && (any (\(Pair a _) -> kx == a) ys || any (kx `elemTree`) c)
 
--- | /O(n)/. IS the value not a member of the heap?
+-- | /O(n)/. Is the value not a member of the heap?
 notMember :: Ord k => k -> PrioHeap k a -> Bool
 notMember key = not . member key
 

@@ -6,20 +6,20 @@
 {- |
 = Finite vectors
 
-The @'Vector' a@ type represents a finite vector of elements of type @a@.
+The @'Vector' a@ type represents a finite vector (or dynamic array) of elements of type @a@.
 A 'Vector' is strict in its spine.
 
 The class instances are based on those for lists.
 
 This module should be imported qualified, to avoid name clashes with the 'Prelude'.
 
-> import Qualified Data.AMT as Vector
+> import qualified Data.AMT as Vector
 
 == Performance
 
-The running time complexities are given, with /n/ referring the the number of elements in the vector.
-A 'Vector' is particularily efficient for applications that require a lot of indexing and updates.
-The given running times are worst case. All logarithms are base 16.
+The worst case running time complexities are given, with /n/ referring the the number of elements in the vector.
+A 'Vector' is particularly efficient for applications that require a lot of indexing and updates.
+All logarithms are base 16, which means that /O(log n)/ behaves like /O(1)/ in practice.
 
 == Warning
 
@@ -38,45 +38,47 @@ module Data.AMT
     , fromFunction
     , replicate, replicateA
     , unfoldr, unfoldl, iterateN
-
-    , (<|), viewl
-    , (|>), viewr
+    , (<|), (|>), (><)
+    -- * Deconstruction/Subranges
+    , viewl
+    , viewr
     , last
     , take
-    , append
-
-    , lookup
-    , (!?)
+    -- * Indexing
+    , lookup, index
+    , (!?), (!)
     , update
     , adjust
-
+    -- * Transformations
     , map, mapWithIndex
-
+    , traverseWithIndex
+    , indexed
+    -- * Folds
     , foldMapWithIndex
     , foldlWithIndex, foldrWithIndex
     , foldlWithIndex', foldrWithIndex'
-    , traverseWithIndex
-    , indexed
     -- * Zipping/Unzipping
     , zip, zipWith
     , zip3, zipWith3
     , unzip, unzip3
-
+    -- * To Lists
     , toIndexedList
     ) where
 
-import Control.Applicative (Alternative, liftA)
+import Control.Applicative (Alternative)
 import qualified Control.Applicative as Applicative
-import Control.Monad (ap, MonadPlus(..))
+import Control.Monad (MonadPlus(..))
 import Control.Monad.Fail (MonadFail(..))
 import Control.Monad.Zip (MonadZip(..))
 
 import Data.Bits
 import Data.Foldable (foldl', length, toList)
 import Data.Functor.Classes
+import Data.Functor.Compose
 import Data.Functor.Identity
 import Data.List.NonEmpty (NonEmpty(..), (!!))
 import qualified Data.List.NonEmpty as L
+import Data.Maybe (fromMaybe)
 #ifdef __GLASGOW_HASKELL__
 import Data.String (IsString)
 #endif
@@ -89,12 +91,11 @@ import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, un
 import qualified Prelude as P
 import Text.Read (readPrec)
 
-import Data.Vector ((!))
+import Control.Monad.Trans.State.Strict (state, evalState)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
 
-import Data.Traversable.Utils (traverseAccumL)
-
+infixr 5 ><
 infixr 5 <|
 infixl 5 |>
 
@@ -102,7 +103,7 @@ data Tree a
     = Internal !(V.Vector (Tree a))
     | Leaf !(V.Vector a)
 
--- | An Array Mapped Trie.
+-- | An array mapped trie.
 data Vector a
     = Empty
     | Root
@@ -157,7 +158,7 @@ instance Ord a => Ord (Vector a) where
     {-# INLINE compare #-}
 
 instance Semigroup (Vector a) where
-    (<>) = append
+    (<>) = (><)
     {-# INLINE (<>) #-}
 
 instance Monoid (Vector a) where
@@ -210,16 +211,16 @@ instance Applicative Vector where
     pure = singleton
     {-# INLINE pure #-}
 
-    fs <*> xs = foldl' (\acc f -> append acc (map f xs)) empty fs
+    fs <*> xs = foldl' (\acc f -> acc >< map f xs) empty fs
 
 instance Monad Vector where
-    xs >>= f = foldl' (\acc x -> append acc (f x)) empty xs
+    xs >>= f = foldl' (\acc x -> acc >< f x) empty xs
 
 instance Alternative Vector where
     empty = empty
     {-# INLINE empty #-}
 
-    (<|>) = append
+    (<|>) = (><)
     {-# INLINE (<|>) #-}
 
 instance MonadPlus Vector
@@ -299,36 +300,16 @@ unfoldl f = go
         Just (acc', x) -> go acc' |> x
 {-# INLINE unfoldl #-}
 
-newtype State s a = State { runState :: s -> (s, a) }
-
-instance Functor (State s) where
-    fmap = liftA
-    {-# INLINE fmap #-}
-
-instance Applicative (State s) where
-    pure x = State $ \s -> (s, x)
-    {-# INLINE pure #-}
-
-    (<*>) = ap
-    {-# INLINE (<*>) #-}
-
-instance Monad (State s) where
-    st >>= f = State $ \s -> let (s', x) = runState st s in runState (f x) s'
-    {-# INLINE (>>=) #-}
-
-execState :: State s a -> s -> a
-execState st x = snd $ runState st x
-
 -- | Constructs a vector by repeatedly applying a function to a seed value.
 iterateN :: Int -> (a -> a) -> a -> Vector a
-iterateN n f x = if n < 0 then errorNegativeLength "iterateN" else replicateA n (State (\y -> (f y, y))) `execState` x
+iterateN n f x = if n < 0 then errorNegativeLength "iterateN" else replicateA n (state (\y -> (y, f y))) `evalState` x
 {-# INLINE iterateN #-}
 
 -- | /O(n * log n)/. Add an element to the left end of the vector.
 (<|) :: a -> Vector a -> Vector a
 x <| v = fromList $ x : toList v
 
--- | /O(n * log n)/. The vector without the first element and the first element or 'Nothing' if the vector is empty.
+-- | /O(n * log n)/. The first element and the vector without the first element or 'Nothing' if the vector is empty.
 viewl :: Vector a -> Maybe (a, Vector a)
 viewl Empty = Nothing
 viewl v@Root{} =
@@ -378,7 +359,7 @@ viewr (Root s offset h tree (x :| tail))
     getTail (Leaf v) = L.fromList . reverse $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = Root s offset (h - 1) (v ! 0) tail
+        | length v == 1 = Root s offset (h - 1) (v V.! 0) tail
     normalize v = v
 
 -- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
@@ -411,11 +392,11 @@ take n root@(Root s offset h tree tail)
         in Internal $ V.modify (\v -> M.modify v (takeTree (sh - bits)) subIndex) new
     takeTree _ (Leaf v) = Leaf v
 
-    getTail sh (Internal v) = getTail (sh - bits) (v ! (index `shiftR` sh .&. mask))
+    getTail sh (Internal v) = getTail (sh - bits) (v V.! (index `shiftR` sh .&. mask))
     getTail _ (Leaf v) = L.fromList . reverse . P.take (index .&. mask + 1) $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = normalize $ Root s offset (h - 1) (v ! 0) tail
+        | length v == 1 = normalize $ Root s offset (h - 1) (v V.! 0) tail
     normalize v = v
 
 -- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
@@ -426,13 +407,22 @@ lookup i (Root s offset h tree tail)
     | i < offset = Just $ lookupTree (bits * (h - 1)) tree
     | otherwise = Just $ tail !! (s - i - 1)
   where
-    lookupTree sh (Internal v) = lookupTree (sh - bits) (v ! (i `shiftR` sh .&. mask))
-    lookupTree _ (Leaf v) = v ! (i .&. mask)
+    lookupTree sh (Internal v) = lookupTree (sh - bits) (v V.! (i `shiftR` sh .&. mask))
+    lookupTree _ (Leaf v) = v V.! (i .&. mask)
+
+-- | /O(log n)/. The element at the index. Calls 'error' if the index is out of range.
+index :: Int -> Vector a -> a
+index i = fromMaybe (error "AMT.index: index out of range") . lookup i
 
 -- | /O(log n)/. Flipped version of 'lookup'.
 (!?) :: Vector a -> Int -> Maybe a
 (!?) = flip lookup
 {-# INLINE (!?) #-}
+
+-- | /O(log n)/. Flipped version of 'lookup'.
+(!) :: Vector a -> Int -> a
+(!) = flip index
+{-# INLINE (!) #-}
 
 -- | /O(log n)/. Update the element at the index with a new element.
 -- Returns the original vector if the index is out of range.
@@ -457,11 +447,11 @@ adjust i f root@(Root s offset h tree tail)
         in Leaf $ V.modify (\v -> M.modify v f index) v
 
 -- | /O(m * log n)/. Concatenate two vectors.
-append :: Vector a -> Vector a -> Vector a
-append Empty v = v
-append v Empty = v
-append v1 v2 = foldl' (|>) v1 v2
-{-# INLINE append #-}
+(><) :: Vector a -> Vector a -> Vector a
+Empty >< v = v
+v >< Empty = v
+v1 >< v2 = foldl' (|>) v1 v2
+{-# INLINE (><) #-}
 
 -- | /O(n)/. Map a function over the vector.
 map :: (a -> b) -> Vector a -> Vector b
@@ -473,7 +463,7 @@ map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
 
 -- | /O(n)/. Map a function that has access to the index of an element over the vector.
 mapWithIndex :: (Int -> a -> b) -> Vector a -> Vector b
-mapWithIndex f = snd . mapAccumL (\i x -> (i + 1, f i x)) 0
+mapWithIndex f = snd . mapAccumL (\i x -> i `seq` (i + 1, f i x)) 0
 
 -- | /O(n)/. Fold the values in the vector, using the given monoid.
 foldMapWithIndex :: Monoid m => (Int -> a -> m) -> Vector a -> m
@@ -505,9 +495,11 @@ foldrWithIndex' f acc v = foldlWithIndex f' id v acc
 
 -- | /O(n)/. Traverse the vector with a function that has access to the index of an element.
 traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector b)
-traverseWithIndex f = snd . traverseAccumL (\i x -> (i + 1, f i x)) 0
+traverseWithIndex f v = evalState (getCompose $ traverse (Compose . state . flip f') v) 0
+  where
+    f' i x = i `seq` (f i x, i + 1)
 
--- | /O(n)/.
+-- | /O(n)/. Pair each element in the vector with its index.
 indexed :: Vector a -> Vector (Int, a)
 indexed = mapWithIndex (,)
 {-# INLINE indexed #-}

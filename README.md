@@ -1,6 +1,9 @@
 # extended-containers
 
-This package provides container data structures.
+This package provides container data structures, including heaps and array mapped tries.
 
-For [`lens`](https://hackage.haskell.org/package/lens) instances,
-see [`extended-containers-lens`](https://github.com/konsumlamm/extended-containers-lens).
+## Plans
+
+* add a `Data.Deque` module
+* add sorting to `Data.AMT`
+* make an `extended-containers-lens` package for [`lens`](https://hackage.haskell.org/package/lens) instances

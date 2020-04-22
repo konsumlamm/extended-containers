@@ -22,14 +22,12 @@ library
     Data.AMT
     Data.Heap
     Data.PrioHeap
-    Data.Traversable.Utils
   other-modules:
     Data.Heap.Internal
-    Data.List.Strict
-  -- TODO
+    Util.Internal.StrictList
   ghc-options:         -O2 -Wall -Wno-name-shadowing -Wredundant-constraints
                        -Werror=unrecognised-pragmas -Werror=missing-fields -Werror=missing-methods -Werror=unrecognised-warning-flags
-  build-depends:       base >= 4.7 && < 5, vector
+  build-depends:       base >= 4.7 && < 5, transformers, vector
   default-language:    Haskell2010
 
 test-suite test
