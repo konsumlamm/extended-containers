@@ -20,6 +20,7 @@ library
   hs-source-dirs:      src
   exposed-modules:
     Data.AMT
+    Data.Deque
     Data.Heap
     Data.PrioHeap
   other-modules:
