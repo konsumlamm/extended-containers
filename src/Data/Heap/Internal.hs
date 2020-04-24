@@ -50,12 +50,15 @@ import Control.Exception (assert)
 import Data.Foldable (foldl', toList)
 import Data.Functor.Classes
 import Data.Maybe (fromMaybe)
+#if !(MIN_VERSION_base(4,11,0))
+import Data.Semigroup (Semigroup((<>)))
+#endif
 #ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 #endif
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile)
-import Text.Read (readPrec, readListPrec)
+import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
 import Util.Internal.StrictList
 
@@ -148,7 +151,14 @@ instance Show a => Show (Heap a) where
     {-# INLINE showsPrec #-}
 
 instance (Ord a, Read a) => Read (Heap a) where
-    readPrec = readData $ readUnaryWith readListPrec "fromList" fromList
+#ifdef __GLASGOW_HASKELL__
+    readPrec = parens $ prec 10 $ do
+        Ident "fromList" <- lexP
+        xs <- readPrec
+        pure (fromList xs)
+#else
+    readsPrec = readsData $ readsUnaryWith readList "fromList" fromList
+#endif
 
 instance Ord a => Eq (Heap a) where
     heap1 == heap2 = size heap1 == size heap2 && toAscList heap1 == toAscList heap2
@@ -163,6 +173,9 @@ instance Ord a => Semigroup (Heap a) where
 instance Ord a => Monoid (Heap a) where
     mempty = empty
     {-# INLINE mempty #-}
+
+    mappend = (<>)
+    {-# INLINE mappend #-}
 
 instance Foldable Heap where
     foldr _ acc Empty = acc
@@ -255,7 +268,7 @@ partition f = foldl' (\(h1, h2) x -> if f x then (insert x h1, h2) else (h1, ins
 
 -- | /O(n * log n)/. Fold the values in the heap in order, using the given monoid.
 foldMapOrd :: (Ord a, Monoid m) => (a -> m) -> Heap a -> m
-foldMapOrd f = foldrOrd ((<>) . f) mempty
+foldMapOrd f = foldrOrd (mappend . f) mempty
 
 -- | /O(n * log n)/. Fold the values in the heap in order, using the given right-associative function.
 foldrOrd :: Ord a => (a -> b -> b) -> b -> Heap a -> b

@@ -82,12 +82,15 @@ import Control.Exception (assert)
 import Data.Foldable (foldl', foldr')
 import Data.Functor.Classes
 import Data.Maybe (fromMaybe)
+#if !(MIN_VERSION_base(4,11,0))
+import Data.Semigroup (Semigroup((<>)))
+#endif
 #ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 #endif
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile, uncurry)
-import Text.Read (readPrec)
+import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
 import qualified Data.Heap.Internal as Heap
 import Util.Internal.StrictList
@@ -190,14 +193,21 @@ instance (Show k, Show a) => Show (PrioHeap k a) where
     {-# INLINE showsPrec #-}
 
 instance (Ord k, Read k) => Read1 (PrioHeap k) where
-    liftReadPrec rp rl = readData $ readUnaryWith (liftReadPrec rp' rl') "fromList" fromList
+    liftReadsPrec rp rl = readsData $ readsUnaryWith (liftReadsPrec rp' rl') "fromList" fromList
       where
-        rp' = liftReadPrec rp rl
-        rl' = liftReadListPrec rp rl
+        rp' = liftReadsPrec rp rl
+        rl' = liftReadList rp rl
 
 instance (Ord k, Read k, Read a) => Read (PrioHeap k a) where
-    readPrec = readPrec1
+#ifdef __GLASGOW_HASKELL__
+    readPrec = parens $ prec 10 $ do
+        Ident "fromList" <- lexP
+        xs <- readPrec
+        pure (fromList xs)
+#else
+    readsPrec = readsPrec1
     {-# INLINE readPrec #-}
+#endif
 
 instance Ord k => Eq1 (PrioHeap k) where
     liftEq f heap1 heap2 = size heap1 == size heap2 && liftEq (liftEq f) (toAscList heap1) (toAscList heap2)
@@ -220,6 +230,9 @@ instance Ord k => Semigroup (PrioHeap k a) where
 instance Ord k => Monoid (PrioHeap k a) where
     mempty = empty
     {-# INLINE mempty #-}
+
+    mappend = (<>)
+    {-# INLINE mappend #-}
 
 instance Functor (PrioHeap k) where
     fmap = map
@@ -388,7 +401,7 @@ mapEitherWithKey f = foldrWithKey f' (empty, empty)
 
 -- | /O(n)/. Fold the keys and values in the heap, using the given monoid.
 foldMapWithKey :: Monoid m => (k -> a -> m) -> PrioHeap k a -> m
-foldMapWithKey f = foldrWithKey (\key x acc -> f key x <> acc) mempty
+foldMapWithKey f = foldrWithKey (\key x acc -> f key x `mappend` acc) mempty
 {-# INLINE foldMapWithKey #-}
 
 -- | /O(n)/. Fold the keys and values in the heap, using the given right-associative function.
@@ -450,7 +463,7 @@ foldlOrd' f = foldlWithKeyOrd' (const . f)
 
 -- | /O(n * log n)/. Fold the keys and values in the heap in order, using the given monoid.
 foldMapWithKeyOrd :: (Ord k, Monoid m) => (k -> a -> m) -> PrioHeap k a -> m
-foldMapWithKeyOrd f = foldrWithKeyOrd (\key x acc -> f key x <> acc) mempty
+foldMapWithKeyOrd f = foldrWithKeyOrd (\key x acc -> f key x `mappend` acc) mempty
 {-# INLINE foldMapWithKeyOrd #-}
 
 -- | /O(n * log n)/. Fold the keys and values in the heap in order, using the given right-associative function.
