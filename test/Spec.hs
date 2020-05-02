@@ -16,12 +16,8 @@ import qualified Data.Heap as H
 import Data.PrioHeap (PrioHeap)
 import qualified Data.PrioHeap as P
 
-instance Arbitrary1 Vector where
-   liftArbitrary = fmap V.fromList . liftArbitrary
-
 instance Arbitrary a => Arbitrary (Vector a) where
-    arbitrary = arbitrary1
-    {-# INLINE arbitrary #-}
+    arbitrary = fmap V.fromList arbitrary
 
 instance Arbitrary1 Deque where
     liftArbitrary = fmap D.fromList . liftArbitrary
@@ -33,12 +29,8 @@ instance Arbitrary a => Arbitrary (Deque a) where
 instance (Arbitrary a, Ord a) => Arbitrary (Heap a) where
     arbitrary = fmap H.fromList arbitrary
 
-instance (Arbitrary k, Ord k) => Arbitrary1 (PrioHeap k) where
-    liftArbitrary = fmap P.fromList . liftArbitrary . liftArbitrary
-
 instance (Arbitrary k, Arbitrary a, Ord k) => Arbitrary (PrioHeap k a) where
-    arbitrary = arbitrary1
-    {-# INLINE arbitrary #-}
+    arbitrary = fmap P.fromList arbitrary
 
 uncons :: [a] -> Maybe (a, [a])
 uncons [] = Nothing
@@ -115,7 +107,7 @@ main = hspec $ do
                 H.size H.empty `shouldBe` 0
         describe "union" $
             it "returns the union of two heaps" $
-                property $ \(xs :: [Int]) (ys :: [Int]) -> H.fromList xs <> H.fromList ys === H.fromList (xs ++ ys)
+                property $ \(xs :: [Int]) (ys :: [Int]) -> H.fromList xs `H.union` H.fromList ys === H.fromList (xs ++ ys)
         describe "insert" $
             it "inserts an element" $
                 property $ \(xs :: [Int]) (x :: Int) -> H.insert x (H.fromList xs) === H.fromList (x : xs)
@@ -142,7 +134,7 @@ main = hspec $ do
                 P.size P.empty `shouldBe` 0
         describe "union" $
             it "returns the union of two heaps" $
-                property $ \(xs :: [(Int, ())]) (ys :: [(Int, ())]) -> P.fromList xs <> P.fromList ys === P.fromList (xs ++ ys)
+                property $ \(xs :: [(Int, ())]) (ys :: [(Int, ())]) -> P.fromList xs `P.union` P.fromList ys === P.fromList (xs ++ ys)
         describe "insert" $
             it "inserts an element" $
                 property $ \(xs :: [(Int, ())]) (x :: Int) -> P.insert x () (P.fromList xs) === P.fromList ((x, ()) : xs)

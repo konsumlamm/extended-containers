@@ -68,17 +68,22 @@ module Data.AMT
 import Control.Applicative (Alternative)
 import qualified Control.Applicative as Applicative
 import Control.Monad (MonadPlus(..))
+#if !(MIN_VERSION_base(4,13,0))
 import Control.Monad.Fail (MonadFail(..))
+#endif
 import Control.Monad.Zip (MonadZip(..))
 
 import Data.Bits
-import Data.Foldable (foldl', length, toList)
+import Data.Foldable (foldl', toList)
 import Data.Functor.Classes
 import Data.Functor.Compose
 import Data.Functor.Identity
 import Data.List.NonEmpty (NonEmpty(..), (!!))
 import qualified Data.List.NonEmpty as L
 import Data.Maybe (fromMaybe)
+#if !(MIN_VERSION_base(4,11,0))
+import Data.Semigroup (Semigroup((<>)))
+#endif
 #ifdef __GLASGOW_HASKELL__
 import Data.String (IsString)
 #endif
@@ -89,7 +94,7 @@ import qualified GHC.Exts as Exts
 #endif
 import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
 import qualified Prelude as P
-import Text.Read (readPrec)
+import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
 import Control.Monad.Trans.State.Strict (state, evalState)
 import qualified Data.Vector as V
@@ -137,11 +142,18 @@ instance Show a => Show (Vector a) where
     {-# INLINE showsPrec #-}
 
 instance Read1 Vector where
-    liftReadPrec rp rl = readData $ readUnaryWith (liftReadPrec rp rl) "fromList" fromList
+    liftReadsPrec rp rl = readsData $ readsUnaryWith (liftReadsPrec rp rl) "fromList" fromList
 
 instance Read a => Read (Vector a) where
-    readPrec = readPrec1
-    {-# INLINE readPrec #-}
+#ifdef __GLASGOW_HASKELL__
+    readPrec = parens $ prec 10 $ do
+        Ident "fromList" <- lexP
+        xs <- readPrec
+        pure (fromList xs)
+#else
+    readsPrec = readsPrec1
+    {-# INLINE readsPrec #-}
+#endif
 
 instance Eq1 Vector where
     liftEq f v1 v2 = length v1 == length v2 && liftEq f (toList v1) (toList v2)
@@ -164,6 +176,9 @@ instance Semigroup (Vector a) where
 instance Monoid (Vector a) where
     mempty = empty
     {-# INLINE mempty #-}
+
+    mappend = (<>)
+    {-# INLINE mappend #-}
 
 instance Foldable Vector where
     foldr _ acc Empty = acc
