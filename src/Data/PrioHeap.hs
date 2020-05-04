@@ -92,6 +92,8 @@ import qualified GHC.Exts as Exts
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile, uncurry)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
+import Control.DeepSeq
+
 import qualified Data.Heap.Internal as Heap
 import Util.Internal.StrictList
 
@@ -275,6 +277,16 @@ instance Ord k => IsList (PrioHeap k a) where
     toList = toList
     {-# INLINE toList #-}
 #endif
+
+instance (NFData k, NFData a) => NFData (Pair k a) where
+    rnf (Pair k x) = rnf k `seq` rnf x
+
+instance (NFData k, NFData a) => NFData (Tree k a) where
+    rnf (Node _ k x xs c) = rnf k `seq` rnf x `seq` rnf xs `seq` rnf c
+
+instance (NFData k, NFData a) => NFData (PrioHeap k a) where
+    rnf Empty = ()
+    rnf (Heap _ k x forest) = rnf k `seq` rnf x `seq` rnf forest
 
 
 -- | /O(1)/. The empty heap.

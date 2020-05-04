@@ -5,6 +5,8 @@ module Util.Internal.StrictList
 
 import Prelude hiding (reverse)
 
+import Control.DeepSeq
+
 -- | A strict list.
 data List a = Nil | !a `Cons` !(List a)
 
@@ -30,6 +32,10 @@ instance Traversable List where
         go Nil = pure Nil
         go (x `Cons` xs) = Cons <$> f x <*> go xs
     {-# INLINE traverse #-}
+
+instance NFData a => NFData (List a) where
+    rnf Nil = ()
+    rnf (x `Cons` xs) = rnf x `seq` rnf xs
 
 reverse :: List a -> List a
 reverse = rev Nil

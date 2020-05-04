@@ -96,6 +96,8 @@ import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, un
 import qualified Prelude as P
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
+import Control.DeepSeq
+
 import Control.Monad.Trans.State.Strict (state, evalState)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
@@ -181,11 +183,13 @@ instance Monoid (Vector a) where
     {-# INLINE mappend #-}
 
 instance Foldable Vector where
-    foldr _ acc Empty = acc
-    foldr f acc (Root _ _ _ tree tail) = foldrTree tree (foldr f acc (L.reverse tail))
+    foldr f acc = \v -> case v of
+        Empty -> acc
+        Root _ _ _ tree tail -> foldrTree tree (foldr f acc (L.reverse tail))
       where
         foldrTree (Internal v) acc' = foldr foldrTree acc' v
         foldrTree (Leaf v) acc' = foldr f acc' v
+    {-# INLINE foldr #-}
 
     null Empty = True
     null Root{} = False
@@ -200,9 +204,9 @@ instance Functor Vector where
     {-# INLINE fmap #-}
 
 instance Traversable Vector where
-    traverse _ Empty = pure Empty
-    traverse f (Root s offset h tree tail) =
-        Root s offset h <$> traverseTree tree <*> (L.reverse <$> traverse f (L.reverse tail))
+    traverse f = \v -> case v of
+        Empty -> pure empty
+        Root s offset h tree tail -> Root s offset h <$> traverseTree tree <*> (L.reverse <$> traverse f (L.reverse tail))
       where
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
@@ -253,6 +257,14 @@ instance MonadZip Vector where
 
     munzip = unzip
     {-# INLINE munzip #-}
+
+instance NFData a => NFData (Tree a) where
+    rnf (Internal v) = rnf v
+    rnf (Leaf v) = rnf v
+
+instance NFData a => NFData (Vector a) where
+    rnf Empty = ()
+    rnf (Root _ _ _ tree tail) = rnf tree `seq` rnf tail
 
 
 -- | /O(1)/. The empty vector.
@@ -323,6 +335,7 @@ iterateN n f x = if n < 0 then errorNegativeLength "iterateN" else replicateA n 
 -- | /O(n * log n)/. Add an element to the left end of the vector.
 (<|) :: a -> Vector a -> Vector a
 x <| v = fromList $ x : toList v
+{-# INLINE (<|) #-}
 
 -- | /O(n * log n)/. The first element and the vector without the first element or 'Nothing' if the vector is empty.
 viewl :: Vector a -> Maybe (a, Vector a)
@@ -330,6 +343,7 @@ viewl Empty = Nothing
 viewl v@Root{} =
     let ls = toList v
     in Just (head ls, fromList $ P.tail ls)
+{-# INLINE viewl #-}
 
 -- | /O(log n)/. Add an element to the right end of the vector.
 (|>) :: Vector a -> a -> Vector a
@@ -470,27 +484,33 @@ v1 >< v2 = foldl' (|>) v1 v2
 
 -- | /O(n)/. Map a function over the vector.
 map :: (a -> b) -> Vector a -> Vector b
-map _ Empty = Empty
-map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
+map f = \v -> case v of
+    Empty -> Empty
+    Root s offset h tree tail -> Root s offset h (mapTree tree) (fmap f tail)
   where
     mapTree (Internal v) = Internal (fmap mapTree v)
     mapTree (Leaf v) = Leaf (fmap f v)
+{-# INLINE map #-}
 
 -- | /O(n)/. Map a function that has access to the index of an element over the vector.
 mapWithIndex :: (Int -> a -> b) -> Vector a -> Vector b
 mapWithIndex f = snd . mapAccumL (\i x -> i `seq` (i + 1, f i x)) 0
+{-# INLINE mapWithIndex #-}
 
 -- | /O(n)/. Fold the values in the vector, using the given monoid.
 foldMapWithIndex :: Monoid m => (Int -> a -> m) -> Vector a -> m
 foldMapWithIndex f = foldrWithIndex (\i -> mappend . f i) mempty
+{-# INLINE foldMapWithIndex #-}
 
 -- | /O(n)/. Fold using the given left-associative function that has access to the index of an element.
 foldlWithIndex :: (b -> Int -> a -> b) -> b -> Vector a -> b
 foldlWithIndex f acc v = foldl (\g x i -> i `seq` f (g (i - 1)) i x) (const acc) v (length v - 1)
+{-# INLINE foldlWithIndex #-}
 
 -- | /O(n)/. Fold using the given right-associative function that has access to the index of an element.
 foldrWithIndex :: (Int -> a -> b -> b) -> b -> Vector a -> b
 foldrWithIndex f acc v = foldr (\x g i -> i `seq` f i x (g (i + 1))) (const acc) v 0
+{-# INLINE foldrWithIndex #-}
 
 -- | /O(n)/. A strict version of 'foldlWithIndex'.
 -- Each application of the function is evaluated before using the result in the next application.
@@ -513,6 +533,7 @@ traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector
 traverseWithIndex f v = evalState (getCompose $ traverse (Compose . state . flip f') v) 0
   where
     f' i x = i `seq` (f i x, i + 1)
+{-# INLINE traverseWithIndex #-}
 
 -- | /O(n)/. Pair each element in the vector with its index.
 indexed :: Vector a -> Vector (Int, a)

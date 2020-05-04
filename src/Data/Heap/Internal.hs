@@ -60,6 +60,8 @@ import qualified GHC.Exts as Exts
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
+import Control.DeepSeq
+
 import Util.Internal.StrictList
 
 -- | A skew binomial heap.
@@ -201,6 +203,13 @@ instance Ord a => IsList (Heap a) where
     toList = toList
     {-# INLINE toList #-}
 #endif
+
+instance NFData a => NFData (Tree a) where
+    rnf (Node _ x xs c) = rnf x `seq` rnf xs `seq` rnf c
+
+instance NFData a => NFData (Heap a) where
+    rnf Empty = ()
+    rnf (Heap _ x forest) = rnf x `seq` rnf forest
 
 
 -- | /O(1)/. The empty heap.
