@@ -118,6 +118,12 @@ data Tree k a = Node
     , _children :: !(Forest k a)
     }
 
+instance (NFData k, NFData a) => NFData (Pair k a) where
+    rnf (Pair k x) = rnf k `seq` rnf x
+
+instance (NFData k, NFData a) => NFData (Tree k a) where
+    rnf (Node _ k x xs c) = rnf k `seq` rnf x `seq` rnf xs `seq` rnf c
+
 errorEmpty :: String -> a
 errorEmpty s = error $ "PrioHeap." ++ s ++ ": empty heap"
 
@@ -278,12 +284,6 @@ instance Ord k => IsList (PrioHeap k a) where
     {-# INLINE toList #-}
 #endif
 
-instance (NFData k, NFData a) => NFData (Pair k a) where
-    rnf (Pair k x) = rnf k `seq` rnf x
-
-instance (NFData k, NFData a) => NFData (Tree k a) where
-    rnf (Node _ k x xs c) = rnf k `seq` rnf x `seq` rnf xs `seq` rnf c
-
 instance (NFData k, NFData a) => NFData (PrioHeap k a) where
     rnf Empty = ()
     rnf (Heap _ k x forest) = rnf k `seq` rnf x `seq` rnf forest
@@ -341,14 +341,16 @@ mapWithKey _ Empty = Empty
 mapWithKey f (Heap s key x forest) = Heap s key (f key x) (fmap mapTree forest)
   where
     mapTree (Node r key x xs c) = Node r key (f key x) (fmap mapPair xs) (fmap mapTree c)
+
     mapPair (Pair key x) = Pair key (f key x)
-{-# INLINE mapWithKey #-}
 
 -- | /O(n)/. Traverse the heap with a function that has access to the key associated with a value.
 traverseWithKey :: Applicative f => (k -> a -> f b) -> PrioHeap k a -> f (PrioHeap k b)
-traverseWithKey _ Empty = pure Empty
-traverseWithKey f (Heap s key x forest) = Heap s key <$> f key x <*> traverse traverseTree forest
+traverseWithKey f = go
   where
+    go Empty = pure Empty
+    go (Heap s key x forest) = Heap s key <$> f key x <*> traverse traverseTree forest
+
     traverseTree (Node r key x xs c) = Node r key <$> f key x <*> traverse traversePair xs <*> traverse traverseTree c
     traversePair (Pair key x) = Pair key <$> f key x
 {-# INLINE traverseWithKey #-}
@@ -418,17 +420,23 @@ foldMapWithKey f = foldrWithKey (\key x acc -> f key x `mappend` acc) mempty
 
 -- | /O(n)/. Fold the keys and values in the heap, using the given right-associative function.
 foldrWithKey :: (k -> a -> b -> b) -> b -> PrioHeap k a -> b
-foldrWithKey _ acc Empty = acc
-foldrWithKey f acc (Heap _ key x forest) = f key x (foldr foldTree acc forest)
+foldrWithKey f acc = go
   where
+    go Empty = acc
+    go (Heap _ key x forest) = f key x (foldr foldTree acc forest)
+
     foldTree (Node _ key x xs c) acc = f key x (foldr (uncurry f) (foldr foldTree acc c) xs)
+{-# INLINE foldrWithKey #-}
 
 -- | /O(n)/. Fold the keys and values in the heap, using the given left-associative function.
 foldlWithKey :: (b -> k -> a -> b) -> b -> PrioHeap k a -> b
-foldlWithKey _ acc Empty = acc
-foldlWithKey f acc (Heap _ key x forest) = foldl foldTree (f acc key x) forest
+foldlWithKey f acc = go
   where
+    go Empty = acc
+    go (Heap _ key x forest) = foldl foldTree (f acc key x) forest
+
     foldTree acc (Node _ key x xs c) = foldl foldTree (foldl (uncurry . f) (f acc key x) xs) c
+{-# INLINE foldlWithKey #-}
 
 -- | /O(n)/. A strict version of 'foldrWithKey'.
 -- Each application of the function is evaluated before using the result in the next application.

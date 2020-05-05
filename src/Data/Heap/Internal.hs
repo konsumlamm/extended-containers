@@ -81,14 +81,11 @@ data Tree a = Node
     , _children :: !(Forest a)
     }
 
+instance NFData a => NFData (Tree a) where
+    rnf (Node _ x xs c) = rnf x `seq` rnf xs `seq` rnf c
+
 errorEmpty :: String -> a
 errorEmpty s = error $ "Heap." ++ s ++ ": empty heap"
-
-instance Functor Tree where
-    fmap f (Node r x xs c) = Node r (f x) (fmap f xs) (fmap (fmap f) c)
-
-instance Foldable Tree where
-    foldr f acc (Node _ x xs c) = f x (foldr f (foldr (flip (foldr f)) acc c) xs)
 
 link :: Ord a => Tree a -> Tree a -> Tree a
 link t1@(Node r1 x1 xs1 c1) t2@(Node r2 x2 xs2 c2) = assert (r1 == r2) $
@@ -180,8 +177,21 @@ instance Ord a => Monoid (Heap a) where
     {-# INLINE mappend #-}
 
 instance Foldable Heap where
-    foldr _ acc Empty = acc
-    foldr f acc (Heap _ x forest) = f x (foldr (flip (foldr f)) acc forest)
+    foldr f acc = go
+      where
+        go Empty = acc
+        go (Heap _ x forest) = f x (foldr foldTree acc forest)
+
+        foldTree (Node _ x xs c) acc = f x (foldr f (foldr foldTree acc c) xs)
+    {-# INLINE foldr #-}
+
+    foldl f acc = go
+      where
+        go Empty = acc
+        go (Heap _ x forest) = foldl foldTree (f acc x) forest
+
+        foldTree acc (Node _ x xs c) = foldl foldTree (foldl f (f acc x) xs) c
+    {-# INLINE foldl #-}
 
     null Empty = True
     null Heap{} = False
@@ -203,9 +213,6 @@ instance Ord a => IsList (Heap a) where
     toList = toList
     {-# INLINE toList #-}
 #endif
-
-instance NFData a => NFData (Tree a) where
-    rnf (Node _ x xs c) = rnf x `seq` rnf xs `seq` rnf c
 
 instance NFData a => NFData (Heap a) where
     rnf Empty = ()
@@ -261,19 +268,19 @@ map f = fromList . fmap f . toList
 -- | /O(n)/, Map an increasing function over the heap. The precondition is not checked.
 mapMonotonic :: (a -> b) -> Heap a -> Heap b
 mapMonotonic _ Empty = Empty
-mapMonotonic f (Heap s x forest) = Heap s (f x) (fmap (fmap f) forest)
+mapMonotonic f (Heap s x forest) = Heap s (f x) (fmap mapTree forest)
+  where
+    mapTree (Node r x xs c) = Node r (f x) (fmap f xs) (fmap mapTree c)
 {-# INLINE mapMonotonic #-}
 
 -- | /O(n)/. Filter all elements that satisfy the predicate.
 filter :: Ord a => (a -> Bool) -> Heap a -> Heap a
 filter f = foldl' (\acc x -> if f x then insert x acc else acc) empty
-{-# INLINE filter #-}
 
 -- | /O(n)/. Partition the heap into two heaps, one with all elements that satisfy the predicate
 -- and one with all elements that don't satisfy the predicate.
 partition :: Ord a => (a -> Bool) -> Heap a -> (Heap a, Heap a)
 partition f = foldl' (\(h1, h2) x -> if f x then (insert x h1, h2) else (h1, insert x h2)) (empty, empty)
-{-# INLINE partition #-}
 
 -- | /O(n * log n)/. Fold the values in the heap in order, using the given monoid.
 foldMapOrd :: (Ord a, Monoid m) => (a -> m) -> Heap a -> m

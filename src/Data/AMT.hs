@@ -120,6 +120,10 @@ data Vector a
         !(Tree a)  -- tree
         !(NonEmpty a)  -- tail (reversed)
 
+instance NFData a => NFData (Tree a) where
+    rnf (Internal v) = rnf v
+    rnf (Leaf v) = rnf v
+
 errorNegativeLength :: String -> a
 errorNegativeLength s = error $ "AMT." ++ s ++ ": expected a nonnegative length"
 
@@ -183,10 +187,11 @@ instance Monoid (Vector a) where
     {-# INLINE mappend #-}
 
 instance Foldable Vector where
-    foldr f acc = \v -> case v of
-        Empty -> acc
-        Root _ _ _ tree tail -> foldrTree tree (foldr f acc (L.reverse tail))
+    foldr f acc = go
       where
+        go Empty = acc
+        go (Root _ _ _ tree tail) = foldrTree tree (foldr f acc (L.reverse tail))
+
         foldrTree (Internal v) acc' = foldr foldrTree acc' v
         foldrTree (Leaf v) acc' = foldr f acc' v
     {-# INLINE foldr #-}
@@ -204,12 +209,21 @@ instance Functor Vector where
     {-# INLINE fmap #-}
 
 instance Traversable Vector where
-    traverse f = \v -> case v of
-        Empty -> pure empty
-        Root s offset h tree tail -> Root s offset h <$> traverseTree tree <*> (L.reverse <$> traverse f (L.reverse tail))
+    traverse f = go
       where
+        go Empty = pure empty
+        go (Root s offset h tree (x :| tail)) =
+            Root s offset h <$> traverseTree tree <*> (flip (:|) <$> traverseReverse f tail <*> f x)
+
+        traverseReverse f = go
+          where
+            go [] = pure []
+            go (x : xs) = flip (:) <$> go xs <*> f x
+        {-# INLINE traverseReverse #-}
+
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
+    {-# INLINE traverse #-}
 
 #ifdef __GLASGOW_HASKELL__
 instance IsList (Vector a) where
@@ -257,10 +271,6 @@ instance MonadZip Vector where
 
     munzip = unzip
     {-# INLINE munzip #-}
-
-instance NFData a => NFData (Tree a) where
-    rnf (Internal v) = rnf v
-    rnf (Leaf v) = rnf v
 
 instance NFData a => NFData (Vector a) where
     rnf Empty = ()
@@ -335,7 +345,6 @@ iterateN n f x = if n < 0 then errorNegativeLength "iterateN" else replicateA n 
 -- | /O(n * log n)/. Add an element to the left end of the vector.
 (<|) :: a -> Vector a -> Vector a
 x <| v = fromList $ x : toList v
-{-# INLINE (<|) #-}
 
 -- | /O(n * log n)/. The first element and the vector without the first element or 'Nothing' if the vector is empty.
 viewl :: Vector a -> Maybe (a, Vector a)
@@ -343,7 +352,6 @@ viewl Empty = Nothing
 viewl v@Root{} =
     let ls = toList v
     in Just (head ls, fromList $ P.tail ls)
-{-# INLINE viewl #-}
 
 -- | /O(log n)/. Add an element to the right end of the vector.
 (|>) :: Vector a -> a -> Vector a
@@ -484,13 +492,11 @@ v1 >< v2 = foldl' (|>) v1 v2
 
 -- | /O(n)/. Map a function over the vector.
 map :: (a -> b) -> Vector a -> Vector b
-map f = \v -> case v of
-    Empty -> Empty
-    Root s offset h tree tail -> Root s offset h (mapTree tree) (fmap f tail)
+map _ Empty = Empty
+map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
   where
     mapTree (Internal v) = Internal (fmap mapTree v)
     mapTree (Leaf v) = Leaf (fmap f v)
-{-# INLINE map #-}
 
 -- | /O(n)/. Map a function that has access to the index of an element over the vector.
 mapWithIndex :: (Int -> a -> b) -> Vector a -> Vector b
