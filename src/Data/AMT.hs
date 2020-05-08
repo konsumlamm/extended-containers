@@ -358,20 +358,20 @@ viewl v@Root{} =
 Empty |> x = singleton x
 Root s offset h tree tail |> x
     | s .&. mask /= 0 = Root (s + 1) offset h tree (x L.<| tail)
-    | offset == 0 = Root (s + 1) s (h + 1) (Leaf $ V.fromList (toList $ L.reverse tail)) (x :| [])
-    | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) (x :| [])
-    | otherwise = Root (s + 1) s h (insertTail (bits * (h - 1)) tree) (x :| [])
+    | offset == 0 = Root (s + 1) s h (Leaf $ V.fromListN tailSize (toList $ L.reverse tail)) (x :| [])
+    | offset == 1 `shiftL` (bits * (h + 1)) = Root (s + 1) s (h + 1) (Internal $ V.fromListN 2 [tree, newPath h]) (x :| [])
+    | otherwise = Root (s + 1) s h (insertTail (bits * h) tree) (x :| [])
   where
     -- create a new path from the old tail
-    newPath 1 = Leaf $ V.fromList (toList $ L.reverse tail)
+    newPath 0 = Leaf $ V.fromListN tailSize (toList $ L.reverse tail)
     newPath h = Internal $ V.singleton (newPath (h - 1))
 
     insertTail sh (Internal v)
         | index < V.length v = Internal $ V.modify (\v -> M.modify v (insertTail (sh - bits)) index) v
-        | otherwise = Internal $ V.snoc v (newPath (sh `div` bits))
+        | otherwise = Internal $ V.snoc v (newPath (sh `div` bits - 1))
       where
         index = offset `shiftR` sh .&. mask
-    insertTail _ (Leaf _) = Leaf $ V.fromList (toList $ L.reverse tail)
+    insertTail _ (Leaf _) = Leaf $ V.fromListN tailSize (toList $ L.reverse tail)
 
 -- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
 viewr :: Vector a -> Maybe (Vector a, a)
@@ -380,9 +380,7 @@ viewr (Root s offset h tree (x :| tail))
     | not (null tail) = Just (Root (s - 1) offset h tree (L.fromList tail), x)
     | s == 1 = Just (Empty, x)
     | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf V.empty) (getTail tree), x)
-    | otherwise =
-        let sh = bits * (h - 1)
-        in Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree sh tree) (getTail tree), x)
+    | otherwise = Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree (bits * h) tree) (getTail tree), x)
   where
     index' = offset - tailSize - 1
 
@@ -396,7 +394,7 @@ viewr (Root s offset h tree (x :| tail))
     getTail (Leaf v) = L.fromList . reverse $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = Root s offset (h - 1) (v V.! 0) tail
+        | length v == 1 = Root s offset (h - 1) (V.head v) tail
     normalize v = v
 
 -- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
@@ -413,9 +411,9 @@ take n root@(Root s offset h tree tail)
     | n <= 0 = Empty
     | n >= s = root
     | n > offset = Root n offset h tree (L.fromList $ L.drop (s - n) tail)
-    | n <= tailSize = Root n 0 0 (Leaf V.empty) (getTail (bits * (h - 1)) tree)
+    | n <= tailSize = Root n 0 0 (Leaf V.empty) (getTail (bits * h) tree)
     | otherwise =
-        let sh = bits * (h - 1)
+        let sh = bits * h
         in normalize $ Root n ((n - 1) .&. complement mask) h (takeTree sh tree) (getTail sh tree)  -- n - 1 because if 'n .&. mask == 0', we need to subtract tailSize
   where
     -- index of the last element in the new vector
@@ -433,15 +431,15 @@ take n root@(Root s offset h tree tail)
     getTail _ (Leaf v) = L.fromList . reverse . P.take (index .&. mask + 1) $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = normalize $ Root s offset (h - 1) (v V.! 0) tail
+        | length v == 1 = normalize $ Root s offset (h - 1) (V.head v) tail
     normalize v = v
 
 -- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
 lookup :: Int -> Vector a -> Maybe a
 lookup _ Empty = Nothing
 lookup i (Root s offset h tree tail)
-    | i < 0 || i >= s = Nothing
-    | i < offset = Just $ lookupTree (bits * (h - 1)) tree
+    | i < 0 || i >= s = Nothing  -- index out of range
+    | i < offset = Just $ lookupTree (bits * h) tree
     | otherwise = Just $ tail !! (s - i - 1)
   where
     lookupTree sh (Internal v) = lookupTree (sh - bits) (v V.! (i `shiftR` sh .&. mask))
@@ -472,8 +470,8 @@ update i x = adjust i (const x)
 adjust :: Int -> (a -> a) -> Vector a -> Vector a
 adjust _ _ Empty = Empty
 adjust i f root@(Root s offset h tree tail)
-    | i < 0 || i >= s = root
-    | i < offset = Root s offset h (adjustTree (bits * (h - 1)) tree) tail
+    | i < 0 || i >= s = root  -- index out of range
+    | i < offset = Root s offset h (adjustTree (bits * h) tree) tail
     | otherwise = let (l, x : r) = L.splitAt (s - i - 1) tail in Root s offset h tree (L.fromList $ l ++ (f x : r))
   where
     adjustTree sh (Internal v) =
