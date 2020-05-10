@@ -117,6 +117,13 @@ instance Read a => Read (Deque a) where
     {-# INLINE readsPrec #-}
 #endif
 
+instance Eq1 Deque where
+    liftEq f d1 d2 = length d1 == length d2 && liftEq f (toList d1) (toList d2)
+
+instance Eq a => Eq (Deque a) where
+    (==) = eq1
+    {-# INLINE (==) #-}
+
 instance Functor Deque where
     fmap = map
     {-# INLINE fmap #-}
@@ -133,12 +140,6 @@ instance Traversable Deque where
             Nothing -> pure empty
             Just (x, d') -> (<|) <$> f x <*> go d'
     {-# INLINE traverse #-}
-
-{-
-instance Eq a => Eq (Deque a) where
-    (==) = eq1
-    {-# INLINE (==) #-}
--}
 
 #ifdef __GLASGOW_HASKELL__
 instance IsList (Deque a) where

@@ -44,6 +44,7 @@ library
   ghc-options:         -O2 -Wall -Wno-name-shadowing -Wredundant-constraints
   build-depends:
     base         >= 4.9 && < 5,
+    deepseq      >= 1.4.2 && < 1.5,
     transformers >= 0.5.2 && < 0.6,
     vector       >= 0.11 && < 0.13
   default-language:    Haskell2010
@@ -51,6 +52,10 @@ library
 test-suite test
   hs-source-dirs:      test
   main-is:             Spec.hs
+  other-modules:
+    Data.AMT.Spec
+    Data.Heap.Spec
+    Data.PrioHeap.Spec
   type:                exitcode-stdio-1.0
   ghc-options:         -Wall -Wno-orphans
   build-depends:

@@ -96,6 +96,8 @@ import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, un
 import qualified Prelude as P
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
+import Control.DeepSeq
+
 import Control.Monad.Trans.State.Strict (state, evalState)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
@@ -117,6 +119,10 @@ data Vector a
         {-# UNPACK #-} !Int  -- height (of the tree)
         !(Tree a)  -- tree
         !(NonEmpty a)  -- tail (reversed)
+
+instance NFData a => NFData (Tree a) where
+    rnf (Internal v) = rnf v
+    rnf (Leaf v) = rnf v
 
 errorNegativeLength :: String -> a
 errorNegativeLength s = error $ "AMT." ++ s ++ ": expected a nonnegative length"
@@ -181,11 +187,14 @@ instance Monoid (Vector a) where
     {-# INLINE mappend #-}
 
 instance Foldable Vector where
-    foldr _ acc Empty = acc
-    foldr f acc (Root _ _ _ tree tail) = foldrTree tree (foldr f acc (L.reverse tail))
+    foldr f acc = go
       where
+        go Empty = acc
+        go (Root _ _ _ tree tail) = foldrTree tree (foldr f acc (L.reverse tail))
+
         foldrTree (Internal v) acc' = foldr foldrTree acc' v
         foldrTree (Leaf v) acc' = foldr f acc' v
+    {-# INLINE foldr #-}
 
     null Empty = True
     null Root{} = False
@@ -200,12 +209,21 @@ instance Functor Vector where
     {-# INLINE fmap #-}
 
 instance Traversable Vector where
-    traverse _ Empty = pure Empty
-    traverse f (Root s offset h tree tail) =
-        Root s offset h <$> traverseTree tree <*> (L.reverse <$> traverse f (L.reverse tail))
+    traverse f = go
       where
+        go Empty = pure empty
+        go (Root s offset h tree (x :| tail)) =
+            Root s offset h <$> traverseTree tree <*> (flip (:|) <$> traverseReverse f tail <*> f x)
+
+        traverseReverse f = go
+          where
+            go [] = pure []
+            go (x : xs) = flip (:) <$> go xs <*> f x
+        {-# INLINE traverseReverse #-}
+
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
+    {-# INLINE traverse #-}
 
 #ifdef __GLASGOW_HASKELL__
 instance IsList (Vector a) where
@@ -253,6 +271,10 @@ instance MonadZip Vector where
 
     munzip = unzip
     {-# INLINE munzip #-}
+
+instance NFData a => NFData (Vector a) where
+    rnf Empty = ()
+    rnf (Root _ _ _ tree tail) = rnf tree `seq` rnf tail
 
 
 -- | /O(1)/. The empty vector.
@@ -336,20 +358,20 @@ viewl v@Root{} =
 Empty |> x = singleton x
 Root s offset h tree tail |> x
     | s .&. mask /= 0 = Root (s + 1) offset h tree (x L.<| tail)
-    | offset == 0 = Root (s + 1) s (h + 1) (Leaf $ V.fromList (toList $ L.reverse tail)) (x :| [])
-    | offset == 1 `shiftL` (bits * h) = Root (s + 1) s (h + 1) (Internal $ V.fromList [tree, newPath h]) (x :| [])
-    | otherwise = Root (s + 1) s h (insertTail (bits * (h - 1)) tree) (x :| [])
+    | offset == 0 = Root (s + 1) s h (Leaf $ V.fromListN tailSize (toList $ L.reverse tail)) (x :| [])
+    | offset == 1 `shiftL` (bits * (h + 1)) = Root (s + 1) s (h + 1) (Internal $ V.fromListN 2 [tree, newPath h]) (x :| [])
+    | otherwise = Root (s + 1) s h (insertTail (bits * h) tree) (x :| [])
   where
     -- create a new path from the old tail
-    newPath 1 = Leaf $ V.fromList (toList $ L.reverse tail)
+    newPath 0 = Leaf $ V.fromListN tailSize (toList $ L.reverse tail)
     newPath h = Internal $ V.singleton (newPath (h - 1))
 
     insertTail sh (Internal v)
         | index < V.length v = Internal $ V.modify (\v -> M.modify v (insertTail (sh - bits)) index) v
-        | otherwise = Internal $ V.snoc v (newPath (sh `div` bits))
+        | otherwise = Internal $ V.snoc v (newPath (sh `div` bits - 1))
       where
         index = offset `shiftR` sh .&. mask
-    insertTail _ (Leaf _) = Leaf $ V.fromList (toList $ L.reverse tail)
+    insertTail _ (Leaf _) = Leaf $ V.fromListN tailSize (toList $ L.reverse tail)
 
 -- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
 viewr :: Vector a -> Maybe (Vector a, a)
@@ -358,9 +380,7 @@ viewr (Root s offset h tree (x :| tail))
     | not (null tail) = Just (Root (s - 1) offset h tree (L.fromList tail), x)
     | s == 1 = Just (Empty, x)
     | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf V.empty) (getTail tree), x)
-    | otherwise =
-        let sh = bits * (h - 1)
-        in Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree sh tree) (getTail tree), x)
+    | otherwise = Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree (bits * h) tree) (getTail tree), x)
   where
     index' = offset - tailSize - 1
 
@@ -374,7 +394,7 @@ viewr (Root s offset h tree (x :| tail))
     getTail (Leaf v) = L.fromList . reverse $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = Root s offset (h - 1) (v V.! 0) tail
+        | length v == 1 = Root s offset (h - 1) (V.head v) tail
     normalize v = v
 
 -- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
@@ -391,9 +411,9 @@ take n root@(Root s offset h tree tail)
     | n <= 0 = Empty
     | n >= s = root
     | n > offset = Root n offset h tree (L.fromList $ L.drop (s - n) tail)
-    | n <= tailSize = Root n 0 0 (Leaf V.empty) (getTail (bits * (h - 1)) tree)
+    | n <= tailSize = Root n 0 0 (Leaf V.empty) (getTail (bits * h) tree)
     | otherwise =
-        let sh = bits * (h - 1)
+        let sh = bits * h
         in normalize $ Root n ((n - 1) .&. complement mask) h (takeTree sh tree) (getTail sh tree)  -- n - 1 because if 'n .&. mask == 0', we need to subtract tailSize
   where
     -- index of the last element in the new vector
@@ -411,15 +431,15 @@ take n root@(Root s offset h tree tail)
     getTail _ (Leaf v) = L.fromList . reverse . P.take (index .&. mask + 1) $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = normalize $ Root s offset (h - 1) (v V.! 0) tail
+        | length v == 1 = normalize $ Root s offset (h - 1) (V.head v) tail
     normalize v = v
 
 -- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
 lookup :: Int -> Vector a -> Maybe a
 lookup _ Empty = Nothing
 lookup i (Root s offset h tree tail)
-    | i < 0 || i >= s = Nothing
-    | i < offset = Just $ lookupTree (bits * (h - 1)) tree
+    | i < 0 || i >= s = Nothing  -- index out of range
+    | i < offset = Just $ lookupTree (bits * h) tree
     | otherwise = Just $ tail !! (s - i - 1)
   where
     lookupTree sh (Internal v) = lookupTree (sh - bits) (v V.! (i `shiftR` sh .&. mask))
@@ -450,8 +470,8 @@ update i x = adjust i (const x)
 adjust :: Int -> (a -> a) -> Vector a -> Vector a
 adjust _ _ Empty = Empty
 adjust i f root@(Root s offset h tree tail)
-    | i < 0 || i >= s = root
-    | i < offset = Root s offset h (adjustTree (bits * (h - 1)) tree) tail
+    | i < 0 || i >= s = root  -- index out of range
+    | i < offset = Root s offset h (adjustTree (bits * h) tree) tail
     | otherwise = let (l, x : r) = L.splitAt (s - i - 1) tail in Root s offset h tree (L.fromList $ l ++ (f x : r))
   where
     adjustTree sh (Internal v) =
@@ -479,18 +499,22 @@ map f (Root s offset h tree tail) = Root s offset h (mapTree tree) (fmap f tail)
 -- | /O(n)/. Map a function that has access to the index of an element over the vector.
 mapWithIndex :: (Int -> a -> b) -> Vector a -> Vector b
 mapWithIndex f = snd . mapAccumL (\i x -> i `seq` (i + 1, f i x)) 0
+{-# INLINE mapWithIndex #-}
 
 -- | /O(n)/. Fold the values in the vector, using the given monoid.
 foldMapWithIndex :: Monoid m => (Int -> a -> m) -> Vector a -> m
 foldMapWithIndex f = foldrWithIndex (\i -> mappend . f i) mempty
+{-# INLINE foldMapWithIndex #-}
 
 -- | /O(n)/. Fold using the given left-associative function that has access to the index of an element.
 foldlWithIndex :: (b -> Int -> a -> b) -> b -> Vector a -> b
 foldlWithIndex f acc v = foldl (\g x i -> i `seq` f (g (i - 1)) i x) (const acc) v (length v - 1)
+{-# INLINE foldlWithIndex #-}
 
 -- | /O(n)/. Fold using the given right-associative function that has access to the index of an element.
 foldrWithIndex :: (Int -> a -> b -> b) -> b -> Vector a -> b
 foldrWithIndex f acc v = foldr (\x g i -> i `seq` f i x (g (i + 1))) (const acc) v 0
+{-# INLINE foldrWithIndex #-}
 
 -- | /O(n)/. A strict version of 'foldlWithIndex'.
 -- Each application of the function is evaluated before using the result in the next application.
@@ -513,6 +537,7 @@ traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector
 traverseWithIndex f v = evalState (getCompose $ traverse (Compose . state . flip f') v) 0
   where
     f' i x = i `seq` (f i x, i + 1)
+{-# INLINE traverseWithIndex #-}
 
 -- | /O(n)/. Pair each element in the vector with its index.
 indexed :: Vector a -> Vector (Int, a)
