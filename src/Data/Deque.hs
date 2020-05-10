@@ -1,6 +1,8 @@
 {-# LANGUAGE CPP #-}
 #ifdef __GLASGOW_HASKELL__
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE PatternSynonyms #-}
 #endif
 
 {- TODO:
@@ -8,7 +10,6 @@
     take, drop, splitAt?
     see https://hackage.haskell.org/package/containers/docs/Data-Sequence.html
 -}
--- TODO: pattern synonyms
 
 {- |
 = Finite deques
@@ -38,7 +39,17 @@ The implementation used is described in
 -}
 
 module Data.Deque
+#ifdef __GLASGOW_HASKELL
     ( Deque
+#else
+    ( Deque(Empty, (:<|), (:|>))
+    {- |
+    == Pattern Synonyms
+
+    With GHC, the 'Empty', ':<|' and ':|>' pattern synonyms are available.
+    They can be used to construct and match deques.
+    -}
+#endif
     -- * Construction
     , empty
     , singleton
@@ -76,6 +87,9 @@ import Control.Monad.Zip (MonadZip(..))
 import Data.Foldable (foldl', foldr', toList)
 import Data.Functor.Classes
 import qualified Data.List as List
+#if !(MIN_VERSION_base(4,11,0))
+import Data.Semigroup (Semigroup((<>)))
+#endif
 #ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
@@ -89,11 +103,34 @@ infixr 5 ><
 infixr 5 <|, :<
 infixl 5 |>, :>
 
+#ifdef __GLASGOW_HASKELL__
+infixr 5 :<|
+infixl 5 :|>
+
+#if __GLASGOW_HASKELL >= 801
+{-# COMPLETE (:<|), Empty #-}
+{-# COMPLETE (:|>), Empty #-}
+#endif
+
+pattern Empty :: Deque a
+pattern Empty = Deque 0 [] [] 0 [] []
+
+pattern (:<|) :: a -> Deque a -> Deque a
+pattern x :<| xs <- (viewl -> x :< xs)
+  where
+    x :<| xs = x <| xs
+
+pattern (:|>) :: Deque a -> a -> Deque a
+pattern xs :|> x <- (viewr -> xs :> x)
+  where
+    x :|> xs = x |> xs
+#endif
+
 tail :: [a] -> [a]
 tail [] = []
 tail (_ : xs) = xs
 
--- | Invariant: @length ls <= 3 * length rs + 1 && length rs <= 3 * length ls + 1@.
+-- Invariant: @length ls <= 3 * length rs + 1 && length rs <= 3 * length ls + 1@.
 data Deque a = Deque !Int [a] [a] !Int [a] [a]
 
 -- Restores the invariant.
