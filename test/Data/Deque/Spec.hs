@@ -20,6 +20,14 @@ unsnoc :: [a] -> Maybe ([a], a)
 unsnoc [] = Nothing
 unsnoc xs = Just (init xs, last xs)
 
+fromViewL :: D.ViewL a -> Maybe (a, Deque a)
+fromViewL D.EmptyL = Nothing
+fromViewL (x D.:< xs) = Just (x, xs)
+
+fromViewR :: D.ViewR a -> Maybe (Deque a, a)
+fromViewR D.EmptyR = Nothing
+fromViewR (xs D.:> x) = Just (xs, x)
+
 spec :: Spec
 spec = describe "Data.Deque" $ do
     it "satisfies `fromList . toList == id`" $
@@ -38,9 +46,9 @@ spec = describe "Data.Deque" $ do
            property $ \(x :: Int) -> x D.<| D.empty `shouldBe` D.singleton x
     describe "viewl" $ do
        it "analyzes the front of the deque" $
-           property $ \(d :: Deque Int) -> D.viewl d === fmap (\(x, xs) -> (x, D.fromList xs)) (uncons (toList d))
+           property $ \(d :: Deque Int) -> fromViewL (D.viewl d) === fmap (\(x, xs) -> (x, D.fromList xs)) (uncons (toList d))
        it "returns Nothing for the empty deque" $
-           D.viewl D.empty `shouldBe` (Nothing :: Maybe (Int, Deque Int))
+           D.viewl D.empty `shouldBe` (D.EmptyL :: D.ViewL ())
     describe "|>" $ do
        it "appends an element to the back" $
            property $ \(d :: Deque Int) x -> toList (d D.|> x) === toList d ++ [x]
@@ -48,6 +56,6 @@ spec = describe "Data.Deque" $ do
            property $ \(x :: Int) -> D.empty D.|> x `shouldBe` D.singleton x
     describe "viewr" $ do
        it "analyzes the back of the deque" $
-           property $ \(d :: Deque Int) -> D.viewr d === fmap (\(xs, x) -> (D.fromList xs, x)) (unsnoc (toList d))
+           property $ \(d :: Deque Int) -> fromViewR (D.viewr d) === fmap (\(xs, x) -> (D.fromList xs, x)) (unsnoc (toList d))
        it "returns Nothing for the empty deque" $
-           D.viewr D.empty `shouldBe` (Nothing :: Maybe (Deque Int, Int))
+           D.viewr D.empty `shouldBe` (D.EmptyR :: D.ViewR ())

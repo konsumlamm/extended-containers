@@ -4,11 +4,8 @@
 #endif
 
 {- TODO:
-    zip, zipWith, zip3, zipWith3, unzip, unzip3?
     fromFunction, replicate, replicateA, iterateN?
-    take, drop, splitAt
-    takeWhileL, takeWhileR, dropWhileL, dropWhileR, spanl, spanr, breakl, breakr
-    partition, filter, append/concat?
+    take, drop, splitAt?
     see https://hackage.haskell.org/package/containers/docs/Data-Sequence.html
 -}
 -- TODO: pattern synonyms
@@ -42,29 +39,55 @@ The implementation used is described in
 
 module Data.Deque
     ( Deque
+    -- * Construction
     , empty
     , singleton
     , fromList
-    , (<|)
-    , (|>)
-    , viewl
-    , viewr
+    , (<|), (|>)
+    , (><)
+    -- * Deconstruction
+    , ViewL(..), viewl
+    , ViewR(..), viewr
+    -- * Transformations
     , reverse
     , map
+    -- * Filter
+    , filter, partition
+    , mapMaybe, mapEither
+    -- * Subranges
+    , takeWhileL, takeWhileR
+    , dropWhileL, dropWhileR
+    , spanl, spanr
+    , breakl, breakr
+    -- * Zipping/Unzipping
+    , zip, zipWith
+    , zip3, zipWith3
+    , unzip, unzip3
     ) where
 
-import Data.Foldable (toList)
+import Control.Applicative (Alternative)
+import qualified Control.Applicative as Applicative
+import Control.Monad (MonadPlus(..))
+#if !(MIN_VERSION_base(4,13,0))
+import Control.Monad.Fail (MonadFail(..))
+#endif
+import Control.Monad.Zip (MonadZip(..))
+
+import Data.Foldable (foldl', foldr', toList)
 import Data.Functor.Classes
 import qualified Data.List as List
 #ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 #endif
-import Prelude hiding (map, reverse, tail)
+import Prelude hiding (filter, map, reverse, tail, unzip, unzip3, zip, zipWith, zip3, zipWith3)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
-infixr 5 <|
-infixl 5 |>
+import Control.DeepSeq
+
+infixr 5 ><
+infixr 5 <|, :<
+infixl 5 |>, :>
 
 tail :: [a] -> [a]
 tail [] = []
@@ -73,6 +96,7 @@ tail (_ : xs) = xs
 -- | Invariant: @length ls <= 3 * length rs + 1 && length rs <= 3 * length ls + 1@.
 data Deque a = Deque !Int [a] [a] !Int [a] [a]
 
+-- Restores the invariant.
 check :: Deque a -> Deque a
 check d@(Deque ll ls _ rl rs _)
     | ll > 3 * rl + 1 =
@@ -124,6 +148,24 @@ instance Eq a => Eq (Deque a) where
     (==) = eq1
     {-# INLINE (==) #-}
 
+instance Ord1 Deque where
+    liftCompare f d1 d2 = liftCompare f (toList d1) (toList d2)
+
+instance Ord a => Ord (Deque a) where
+    compare = compare1
+    {-# INLINE compare #-}
+
+instance Semigroup (Deque a) where
+    (<>) = (><)
+    {-# INLINE (<>) #-}
+
+instance Monoid (Deque a) where
+    mempty = empty
+    {-# INLINE mempty #-}
+
+    mappend = (<>)
+    {-# INLINE mappend #-}
+
 instance Functor Deque where
     fmap = map
     {-# INLINE fmap #-}
@@ -131,14 +173,24 @@ instance Functor Deque where
 instance Foldable Deque where
     foldr f acc (Deque _ ls _ _ rs _) = foldr f (foldl (flip f) acc rs) ls
 
+    foldl f acc (Deque _ ls _ _ rs _) = foldr (flip f) (foldl f acc ls) rs
+
+    foldr' f acc (Deque _ ls _ _ rs _) = foldr' f (foldl' (flip f) acc rs) ls
+
+    foldl' f acc (Deque _ ls _ _ rs _) = foldr' (flip f) (foldl' f acc ls) rs
+
+    null (Deque 0 _ _ 0 _ _) = True
+    null Deque{} = False
+    {-# INLINE null #-}
+
     length (Deque ll _ _ rl _ _) = ll + rl
 
 instance Traversable Deque where
     traverse f = go
       where
         go d = case viewl d of
-            Nothing -> pure empty
-            Just (x, d') -> (<|) <$> f x <*> go d'
+            EmptyL -> pure empty
+            x :< d' -> (<|) <$> f x <*> go d'
     {-# INLINE traverse #-}
 
 #ifdef __GLASGOW_HASKELL__
@@ -152,10 +204,40 @@ instance IsList (Deque a) where
     {-# INLINE toList #-}
 #endif
 
--- TODO: instances
--- Show1, Show, Read1, Read, Eq1, Ord1, Ord
--- Semigroup, Monoid
--- Applicative, Alternative, Monad, MonadPlus, MonadFail, MonadZip
+instance Applicative Deque where
+    pure = singleton
+    {-# INLINE pure #-}
+
+    fs <*> xs = foldl' (\acc f -> acc >< map f xs) empty fs
+
+instance Monad Deque where
+    xs >>= f = foldl' (\acc x -> acc >< f x) empty xs
+
+instance Alternative Deque where
+    empty = empty
+    {-# INLINE empty #-}
+
+    (<|>) = (><)
+    {-# INLINE (<|>) #-}
+
+instance MonadPlus Deque
+
+instance MonadFail Deque where
+    fail _ = empty
+    {-# INLINE fail #-}
+
+instance MonadZip Deque where
+    mzip = zip
+    {-# INLINE mzip #-}
+
+    mzipWith = zipWith
+    {-# INLINE mzipWith #-}
+
+    munzip = unzip
+    {-# INLINE munzip #-}
+
+instance NFData a => NFData (Deque a) where
+    rnf (Deque _ ls _ _ rs _) = rnf ls `seq` rnf rs
 
 
 -- | /O(1)/.
@@ -181,26 +263,179 @@ fromList = foldr (<|) empty
 x <| Deque ll ls ls' rl rs rs' = check $ Deque (ll + 1) (x : ls) (tail ls') rl rs (tail rs')
 
 -- | /O(1)/.
-viewl :: Deque a -> Maybe (a, Deque a)
-viewl (Deque _ [] _ _ [] _) = Nothing
-viewl (Deque _ [] _ _ (x : _) _) = Just (x, empty)
-viewl (Deque ll (x : ls) ls' rl rs rs') = Just (x, check $ Deque (ll - 1) ls (tail (tail ls')) rl rs (tail (tail rs')))
-
--- | /O(1)/.
 (|>) :: Deque a -> a -> Deque a
 Deque ll ls ls' rl rs rs' |> x = check $ Deque ll ls (tail ls') (rl + 1) (x : rs) (tail rs')
 
+data ViewL a = EmptyL | a :< Deque a deriving (Eq, Ord, Show, Read)
+
 -- | /O(1)/.
-viewr :: Deque a -> Maybe (Deque a, a)
-viewr (Deque _ [] _ _ [] _) = Nothing
-viewr (Deque _ (x : _) _ _ [] _) = Just (empty, x)
-viewr (Deque ll ls ls' rl (x : rs) rs') = Just (check $ Deque ll ls (tail (tail ls')) (rl - 1) rs (tail (tail rs')), x)
+viewl :: Deque a -> ViewL a
+viewl (Deque _ [] _ _ [] _) = EmptyL
+viewl (Deque _ [] _ _ (x : _) _) = x :< empty
+viewl (Deque ll (x : ls) ls' rl rs rs') = x :< check (Deque (ll - 1) ls (tail (tail ls')) rl rs (tail (tail rs')))
+
+data ViewR a = EmptyR | Deque a :> a deriving (Eq, Ord, Show, Read)
+
+-- | /O(1)/.
+viewr :: Deque a -> ViewR a
+viewr (Deque _ [] _ _ [] _) = EmptyR
+viewr (Deque _ (x : _) _ _ [] _) = empty :> x
+viewr (Deque ll ls ls' rl (x : rs) rs') = check (Deque ll ls (tail (tail ls')) (rl - 1) rs (tail (tail rs'))) :> x
 
 -- | /O(1)/.
 reverse :: Deque a -> Deque a
 reverse (Deque ll ls ls' rl rs rs') = Deque rl rs rs' ll ls ls'
 
+(><) :: Deque a -> Deque a -> Deque a
+d1 >< d2
+    | length d1 >= length d2 = foldl (|>) d1 d2
+    | otherwise = foldr (<|) d2 d1
+
 -- | /O(n)/.
--- TODO
 map :: (a -> b) -> Deque a -> Deque b
-map f (Deque ll ls ls' rl rs rs') = Deque ll (fmap f ls) (fmap f ls') rl (fmap f rs) (fmap f rs')
+map f = go
+  where
+    go d = case viewl d of
+        EmptyL -> empty
+        x :< xs -> f x <| go xs
+
+filter :: (a -> Bool) -> Deque a -> Deque a
+filter f = foldr f' empty
+  where
+    f' x d
+        | f x = x <| d
+        | otherwise = d
+{-# INLINE filter #-}
+
+partition :: (a -> Bool) -> Deque a -> (Deque a, Deque a)
+partition f = foldr f' (empty, empty)
+  where
+    f' x (d1, d2)
+        | f x = (x <| d1, d2)
+        | otherwise = (d1, x <| d2)
+{-# INLINE partition #-}
+
+mapMaybe :: (a -> Maybe b) -> Deque a -> Deque b
+mapMaybe f = foldr f' empty
+  where
+    f' x d = case f x of
+        Just y -> y <| d
+        Nothing -> d
+{-# INLINE mapMaybe #-}
+
+mapEither :: (a -> Either b c) -> Deque a -> (Deque b, Deque c)
+mapEither f = foldr f' (empty, empty)
+  where
+    f' x (d1, d2) = case f x of
+        Left y -> (y <| d1, d2)
+        Right y -> (d1, y <| d2)
+{-# INLINE mapEither #-}
+
+takeWhileL :: (a -> Bool) -> Deque a -> Deque a
+takeWhileL p = go
+  where
+    go d = case viewl d of
+        EmptyL -> empty
+        x :< d'
+            | p x -> x <| go d'
+            | otherwise -> empty
+{-# INLINE takeWhileL #-}
+
+takeWhileR :: (a -> Bool) -> Deque a -> Deque a
+takeWhileR p = go
+  where
+    go d = case viewr d of
+        EmptyR -> empty
+        d' :> x
+            | p x -> go d' |> x
+            | otherwise -> empty
+{-# INLINE takeWhileR #-}
+
+dropWhileL :: (a -> Bool) -> Deque a -> Deque a
+dropWhileL p = go
+  where
+    go d = case viewl d of
+        EmptyL -> d
+        x :< d'
+            | p x -> go d'
+            | otherwise -> d
+{-# INLINE dropWhileL #-}
+
+dropWhileR :: (a -> Bool) -> Deque a -> Deque a
+dropWhileR p = go
+  where
+    go d = case viewr d of
+        EmptyR -> d
+        d' :> x
+            | p x -> go d'
+            | otherwise -> d
+{-# INLINE dropWhileR #-}
+
+spanl :: (a -> Bool) -> Deque a -> (Deque a, Deque a)
+spanl p = go
+  where
+    go d = case viewl d of
+        EmptyL -> (empty, d)
+        x :< d'
+            | p x -> let (xs, d'') = go d' in (x <| xs, d'')
+            | otherwise -> (empty, d)
+{-# INLINE spanl #-}
+
+spanr :: (a -> Bool) -> Deque a -> (Deque a, Deque a)
+spanr p = go
+  where
+    go d = case viewr d of
+        EmptyR -> (empty, d)
+        d' :> x
+            | p x -> let (xs, d'') = go d' in (xs |> x, d'')
+            | otherwise -> (empty, d)
+{-# INLINE spanr #-}
+
+breakl :: (a -> Bool) -> Deque a -> (Deque a, Deque a)
+breakl p = spanl (not . p)
+{-# INLINE breakl #-}
+
+breakr :: (a -> Bool) -> Deque a -> (Deque a, Deque a)
+breakr p = spanr (not . p)
+{-# INLINE breakr #-}
+
+zip :: Deque a -> Deque b -> Deque (a, b)
+zip = zipWith (,)
+{-# INLINE zip #-}
+
+-- | /O(n)/. A generalized 'zip' zipping with a function.
+zipWith :: (a -> b -> c) -> Deque a -> Deque b -> Deque c
+zipWith f = go
+  where
+    go d1 d2 = case (viewl d1, viewl d2) of
+        (x :< xs, y :< ys) -> f x y <| go xs ys
+        (_, _) -> empty
+{-# INLINE zipWith #-}
+
+zip3 :: Deque a -> Deque b -> Deque c -> Deque (a, b, c)
+zip3 = zipWith3 (,,)
+{-# INLINE zip3 #-}
+
+zipWith3 :: (a -> b -> c -> d) -> Deque a -> Deque b -> Deque c -> Deque d
+zipWith3 f = go
+  where
+    go d1 d2 d3 = case (viewl d1, viewl d2, viewl d3) of
+        (x :< xs, y :< ys, z :< zs) -> f x y z <| go xs ys zs
+        (_, _, _) -> empty
+{-# INLINE zipWith3 #-}
+
+unzip :: Deque (a, b) -> (Deque a, Deque b)
+unzip = go
+  where
+    go d = case viewl d of
+        EmptyL -> (empty, empty)
+        (x, y) :< d' -> let (xs, ys) = unzip d' in (x <| xs, y <| ys)
+{-# INLINE unzip #-}
+
+unzip3 :: Deque (a, b, c) -> (Deque a, Deque b, Deque c)
+unzip3 = go
+  where
+    go d = case viewl d of
+        EmptyL -> (empty, empty, empty)
+        (x, y, z) :< d' -> let (xs, ys, zs) = unzip3 d' in (x <| xs, y <| ys, z <| zs)
+{-# INLINE unzip3 #-}

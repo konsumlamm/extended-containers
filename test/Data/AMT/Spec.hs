@@ -30,12 +30,12 @@ spec = describe "Data.AMT" $ do
             property $ \(v :: Vector Int) -> length v === length (toList v)
         it "returns 0 for the empty vector" $
             length V.empty `shouldBe` 0
-    describe "snoc" $ do
+    describe "|>" $ do
         it "appends an element to the back" $
             property $ \(v :: Vector Int) x -> toList (v V.|> x) === toList v ++ [x]
         it "works for the empty vector" $
             property $ \(x :: Int) -> V.empty V.|> x `shouldBe` V.singleton x
-    describe "unsnoc" $ do
+    describe "viewr" $ do
         it "analyzes the back of the vector" $
             property $ \(v :: Vector Int) -> V.viewr v === fmap (\(xs, x) -> (V.fromList xs, x)) (unsnoc (toList v))
         it "returns Nothing for the empty vector" $
