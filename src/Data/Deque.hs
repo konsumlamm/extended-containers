@@ -8,7 +8,6 @@
 {- TODO:
     fromFunction, replicate, replicateA, iterateN?
     take, drop, splitAt?
-    see https://hackage.haskell.org/package/containers/docs/Data-Sequence.html
 -}
 
 {- |
@@ -54,6 +53,7 @@ module Data.Deque
     , empty
     , singleton
     , fromList
+    , unfoldr, unfoldl
     , (<|), (|>)
     , (><)
     -- * Deconstruction
@@ -291,9 +291,21 @@ fromList :: [a] -> Deque a
 fromList = foldr (<|) empty
 {-# INLINE fromList #-}
 
--- TODO: unfoldr :: (b -> Maybe (a, b)) -> b -> Deque a
+unfoldr :: (b -> Maybe (a, b)) -> b -> Deque a
+unfoldr f = go
+  where
+    go acc = case f acc of
+        Nothing -> empty
+        Just (x, acc') -> x <| go acc'
+{-# INLINE unfoldr #-}
 
--- TODO: unfoldl :: (b -> Maybe (b, a)) -> b -> Deque a
+unfoldl :: (b -> Maybe (b, a)) -> b -> Deque a
+unfoldl f = go
+  where
+    go acc = case f acc of
+        Nothing -> empty
+        Just (acc', x) -> go acc' |> x
+{-# INLINE unfoldl #-}
 
 -- | /O(1)/.
 (<|) :: a -> Deque a -> Deque a
