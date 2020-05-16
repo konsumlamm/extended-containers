@@ -140,6 +140,10 @@ tailSize = 1 `shiftL` bits
 mask :: Int
 mask = tailSize - 1
 
+adjustVector :: Int -> (a -> a) -> V.Vector a -> V.Vector a
+adjustVector i f = V.modify (\v -> M.unsafeModify v f i)
+{-# INLINE adjustVector #-}
+
 instance Show1 Vector where
     liftShowsPrec sp sl p v = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList v)
 
@@ -367,7 +371,7 @@ Root s offset h tree tail |> x
     newPath h = Internal $ V.singleton (newPath (h - 1))
 
     insertTail sh (Internal v)
-        | index < V.length v = Internal $ V.modify (\v -> M.modify v (insertTail (sh - bits)) index) v
+        | index < V.length v = Internal $ adjustVector index (insertTail (sh - bits)) v
         | otherwise = Internal $ V.snoc v (newPath (sh `div` bits - 1))
       where
         index = offset `shiftR` sh .&. mask
@@ -386,15 +390,15 @@ viewr (Root s offset h tree (x :| tail))
 
     unsnocTree sh (Internal v) =
         let subIndex = index' `shiftR` sh .&. mask
-            new = V.take (subIndex + 1) v
-        in Internal $ V.modify (\v -> M.modify v (unsnocTree (sh - bits)) subIndex) new
+            new = V.unsafeTake (subIndex + 1) v
+        in Internal $ adjustVector subIndex (unsnocTree (sh - bits)) new
     unsnocTree _ (Leaf v) = Leaf v
 
-    getTail (Internal v) = getTail (V.last v)
+    getTail (Internal v) = getTail (V.unsafeLast v)
     getTail (Leaf v) = L.fromList . reverse $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = Root s offset (h - 1) (V.head v) tail
+        | length v == 1 = Root s offset (h - 1) (V.unsafeHead v) tail
     normalize v = v
 
 -- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
@@ -423,15 +427,15 @@ take n root@(Root s offset h tree tail)
 
     takeTree sh (Internal v) =
         let subIndex = index' `shiftR` sh .&. mask
-            new = V.take (subIndex + 1) v
-        in Internal $ V.modify (\v -> M.modify v (takeTree (sh - bits)) subIndex) new
+            new = V.unsafeTake (subIndex + 1) v
+        in Internal $ adjustVector subIndex (takeTree (sh - bits)) new
     takeTree _ (Leaf v) = Leaf v
 
-    getTail sh (Internal v) = getTail (sh - bits) (v V.! (index `shiftR` sh .&. mask))
+    getTail sh (Internal v) = getTail (sh - bits) (v `V.unsafeIndex` (index `shiftR` sh .&. mask))
     getTail _ (Leaf v) = L.fromList . reverse . P.take (index .&. mask + 1) $ toList v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = normalize $ Root s offset (h - 1) (V.head v) tail
+        | length v == 1 = normalize $ Root s offset (h - 1) (V.unsafeHead v) tail
     normalize v = v
 
 -- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
@@ -442,8 +446,8 @@ lookup i (Root s offset h tree tail)
     | i < offset = Just $ lookupTree (bits * h) tree
     | otherwise = Just $ tail !! (s - i - 1)
   where
-    lookupTree sh (Internal v) = lookupTree (sh - bits) (v V.! (i `shiftR` sh .&. mask))
-    lookupTree _ (Leaf v) = v V.! (i .&. mask)
+    lookupTree sh (Internal v) = lookupTree (sh - bits) (v `V.unsafeIndex` (i `shiftR` sh .&. mask))
+    lookupTree _ (Leaf v) = v `V.unsafeIndex` (i .&. mask)
 
 -- | /O(log n)/. The element at the index. Calls 'error' if the index is out of range.
 index :: Int -> Vector a -> a
@@ -476,10 +480,10 @@ adjust i f root@(Root s offset h tree tail)
   where
     adjustTree sh (Internal v) =
         let index = i `shiftR` sh .&. mask
-        in Internal $ V.modify (\v -> M.modify v (adjustTree (sh - bits)) index) v
+        in Internal $ adjustVector index (adjustTree (sh - bits)) v
     adjustTree _ (Leaf v) =
         let index = i .&. mask
-        in Leaf $ V.modify (\v -> M.modify v f index) v
+        in Leaf $ adjustVector index f v
 
 -- | /O(m * log n)/. Concatenate two vectors.
 (><) :: Vector a -> Vector a -> Vector a
