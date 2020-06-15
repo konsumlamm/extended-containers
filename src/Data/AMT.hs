@@ -13,13 +13,15 @@ The class instances are based on those for lists.
 
 This module should be imported qualified, to avoid name clashes with the 'Prelude'.
 
-> import qualified Data.AMT as Vector
-
 == Performance
 
 The worst case running time complexities are given, with /n/ referring the the number of elements in the vector.
 A 'Vector' is particularly efficient for applications that require a lot of indexing and updates.
 All logarithms are base 16, which means that /O(log n)/ behaves like /O(1)/ in practice.
+
+For a similar container with efficient concatenation and splitting, but slower indexing and updates,
+see [Seq](https://hackage.haskell.org/package/containers/docs/Data-Sequence.html) from the
+[containers](https://hackage.haskell.org/package/containers) package.
 
 == Warning
 
@@ -127,22 +129,42 @@ instance NFData a => NFData (Tree a) where
 errorNegativeLength :: String -> a
 errorNegativeLength s = error $ "AMT." ++ s ++ ": expected a nonnegative length"
 
--- The number of bits used per level.
+-- | The number of bits used per level.
 bits :: Int
 bits = 4
 {-# INLINE bits #-}
 
--- The maximum size of the tail.
+-- | The maximum size of the tail.
 tailSize :: Int
 tailSize = 1 `shiftL` bits
 
--- The mask used to extract the index into the array.
+-- | The mask used to extract the index into the array.
 mask :: Int
 mask = tailSize - 1
 
+-- | Update the element at the specified index. No bounds checks are performed.
 adjustVector :: Int -> (a -> a) -> V.Vector a -> V.Vector a
 adjustVector i f = V.modify (\v -> M.unsafeModify v f i)
 {-# INLINE adjustVector #-}
+
+-- | Convert a full tail into a vector.
+--
+-- > fromTail = V.fromListN tailSize . reverse . toList
+fromTail :: L.NonEmpty a -> V.Vector a
+fromTail (x :| xs) = V.create $ do
+    v <- M.new tailSize
+    M.unsafeWrite v mask x  -- mask = tailSize - 1
+    loop v (tailSize - 2) xs
+    pure v
+  where
+    loop _ _ [] = pure ()
+    loop v i (y : ys) = M.unsafeWrite v i y *> loop v (i - 1) ys
+
+-- | Convert a vector into a tail.
+--
+-- > toTail = L.fromList . reverse . toList
+toTail :: V.Vector a -> L.NonEmpty a
+toTail = L.fromList . foldl (flip (:)) []
 
 instance Show1 Vector where
     liftShowsPrec sp sl p v = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList v)
@@ -362,12 +384,12 @@ viewl v@Root{} =
 Empty |> x = singleton x
 Root s offset h tree tail |> x
     | s .&. mask /= 0 = Root (s + 1) offset h tree (x L.<| tail)
-    | offset == 0 = Root (s + 1) s h (Leaf $ V.fromListN tailSize (toList $ L.reverse tail)) (x :| [])
+    | offset == 0 = Root (s + 1) s h (Leaf $ fromTail tail) (x :| [])
     | offset == 1 `shiftL` (bits * (h + 1)) = Root (s + 1) s (h + 1) (Internal $ V.fromListN 2 [tree, newPath h]) (x :| [])
     | otherwise = Root (s + 1) s h (insertTail (bits * h) tree) (x :| [])
   where
     -- create a new path from the old tail
-    newPath 0 = Leaf $ V.fromListN tailSize (toList $ L.reverse tail)
+    newPath 0 = Leaf $ fromTail tail
     newPath h = Internal $ V.singleton (newPath (h - 1))
 
     insertTail sh (Internal v)
@@ -375,7 +397,7 @@ Root s offset h tree tail |> x
         | otherwise = Internal $ V.snoc v (newPath (sh `div` bits - 1))
       where
         index = offset `shiftR` sh .&. mask
-    insertTail _ (Leaf _) = Leaf $ V.fromListN tailSize (toList $ L.reverse tail)
+    insertTail _ (Leaf _) = Leaf $ fromTail tail
 
 -- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
 viewr :: Vector a -> Maybe (Vector a, a)
@@ -395,7 +417,7 @@ viewr (Root s offset h tree (x :| tail))
     unsnocTree _ (Leaf v) = Leaf v
 
     getTail (Internal v) = getTail (V.unsafeLast v)
-    getTail (Leaf v) = L.fromList . reverse $ toList v
+    getTail (Leaf v) = toTail v
 
     normalize (Root s offset h (Internal v) tail)
         | length v == 1 = Root s offset (h - 1) (V.unsafeHead v) tail
@@ -432,7 +454,7 @@ take n root@(Root s offset h tree tail)
     takeTree _ (Leaf v) = Leaf v
 
     getTail sh (Internal v) = getTail (sh - bits) (v `V.unsafeIndex` (index `shiftR` sh .&. mask))
-    getTail _ (Leaf v) = L.fromList . reverse . P.take (index .&. mask + 1) $ toList v
+    getTail _ (Leaf v) = toTail $ V.take (index .&. mask + 1) v
 
     normalize (Root s offset h (Internal v) tail)
         | length v == 1 = normalize $ Root s offset (h - 1) (V.unsafeHead v) tail
