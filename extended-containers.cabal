@@ -40,11 +40,11 @@ library
   other-modules:
     Data.Heap.Internal
     Util.Internal.StrictList
+    Util.Internal.Indexed
   ghc-options:         -O2 -Wall -Wno-name-shadowing -Wredundant-constraints
   build-depends:
     base         >= 4.9 && < 5,
     deepseq      >= 1.4.2 && < 1.5,
-    transformers >= 0.5.2 && < 0.6,
     vector       >= 0.11 && < 0.13
   default-language:    Haskell2010
 

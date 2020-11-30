@@ -20,9 +20,9 @@ Violation of this condition is not detected and if the length limit is exceeded,
 
 == Implementation
 
-The implementation uses skew binomial heaps, as described in
+The implementation uses skew binomial heaps, as described by:
 
-* Chris Okasaki, \"Purely Functional Data Structures\", 1998
+* Chris Okasaki, \"Purely Functional Data Structures\", 1998.
 -}
 
 module Data.PrioHeap
@@ -194,11 +194,9 @@ instance Show2 PrioHeap where
 
 instance Show k => Show1 (PrioHeap k) where
     liftShowsPrec = liftShowsPrec2 showsPrec showList
-    {-# INLINE liftShowsPrec #-}
 
 instance (Show k, Show a) => Show (PrioHeap k a) where
     showsPrec = showsPrec2
-    {-# INLINE showsPrec #-}
 
 instance (Ord k, Read k) => Read1 (PrioHeap k) where
     liftReadsPrec rp rl = readsData $ readsUnaryWith (liftReadsPrec rp' rl') "fromList" fromList
@@ -214,7 +212,6 @@ instance (Ord k, Read k, Read a) => Read (PrioHeap k a) where
         pure (fromList xs)
 #else
     readsPrec = readsPrec1
-    {-# INLINE readPrec #-}
 #endif
 
 instance Ord k => Eq1 (PrioHeap k) where
@@ -222,29 +219,23 @@ instance Ord k => Eq1 (PrioHeap k) where
 
 instance (Ord k, Eq a) => Eq (PrioHeap k a) where
     (==) = eq1
-    {-# INLINE (==) #-}
 
 instance Ord k => Ord1 (PrioHeap k) where
     liftCompare f heap1 heap2 = liftCompare (liftCompare f) (toAscList heap1) (toAscList heap2)
 
 instance (Ord k, Ord a) => Ord (PrioHeap k a) where
     compare = compare1
-    {-# INLINE compare #-}
 
 instance Ord k => Semigroup (PrioHeap k a) where
     (<>) = union
-    {-# INLINE (<>) #-}
 
 instance Ord k => Monoid (PrioHeap k a) where
     mempty = empty
-    {-# INLINE mempty #-}
 
     mappend = (<>)
-    {-# INLINE mappend #-}
 
 instance Functor (PrioHeap k) where
     fmap = map
-    {-# INLINE fmap #-}
 
 instance Foldable (PrioHeap k) where
     foldMap f = foldMapWithKey (const f)
@@ -264,10 +255,8 @@ instance Foldable (PrioHeap k) where
 
     null Empty = True
     null Heap{} = False
-    {-# INLINE null #-}
 
     length = size
-    {-# INLINE length #-}
 
 instance Traversable (PrioHeap k) where
     traverse f = traverseWithKey (const f)
@@ -278,10 +267,8 @@ instance Ord k => IsList (PrioHeap k a) where
     type Item (PrioHeap k a) = (k, a)
 
     fromList = fromList
-    {-# INLINE fromList #-}
 
     toList = toList
-    {-# INLINE toList #-}
 #endif
 
 instance (NFData k, NFData a) => NFData (PrioHeap k a) where
@@ -294,19 +281,16 @@ instance (NFData k, NFData a) => NFData (PrioHeap k a) where
 -- > empty = fromList []
 empty :: PrioHeap k a
 empty = Empty
-{-# INLINE empty #-}
 
 -- | /O(1)/. A heap with a single element.
 --
 -- > singleton x = fromList [x]
 singleton :: k -> a -> PrioHeap k a
 singleton k x = Heap 1 k x Nil
-{-# INLINE singleton #-}
 
 -- | /O(n * log n)/. Create a heap from a list.
 fromList :: Ord k => [(k, a)] -> PrioHeap k a
 fromList = foldl' (\acc (key, x) -> insert key x acc) empty
-{-# INLINE fromList #-}
 
 -- | /O(1)/. Insert a new key and value into the heap.
 insert :: Ord k => k -> a -> PrioHeap k a -> PrioHeap k a
@@ -328,7 +312,6 @@ union (Heap s1 key1 x1 f1) (Heap s2 key2 x2 f2)
 -- > unions = foldl union empty
 unions :: (Foldable f, Ord k) => f (PrioHeap k a) -> PrioHeap k a
 unions = foldl' union empty
-{-# INLINE unions #-}
 
 -- | /O(n)/. Map a function over the heap.
 map :: (a -> b) -> PrioHeap k a -> PrioHeap k b
@@ -524,7 +507,6 @@ foldlWithKeyOrd' f acc h = foldrWithKeyOrd f' id h acc
 size :: PrioHeap k a -> Int
 size Empty = 0
 size (Heap s _ _ _) = s
-{-# INLINE size #-}
 
 -- | /O(n)/. Is the key a member of the heap?
 member :: Ord k => k -> PrioHeap k a -> Bool
@@ -551,12 +533,10 @@ adjustMinWithKey f (Heap s key x forest) = Heap s key (f key x) forest
 lookupMin :: PrioHeap k a -> Maybe (k, a)
 lookupMin Empty = Nothing
 lookupMin (Heap _ key x _) = Just (key, x)
-{-# INLINE lookupMin #-}
 
 -- | /O(1)/. The minimal element in the heap. Calls 'error' if the heap is empty.
 findMin :: PrioHeap k a -> (k, a)
 findMin heap = fromMaybe (errorEmpty "findMin") (lookupMin heap)
-{-# INLINE findMin #-}
 
 -- | /O(log n)/. Delete the minimal element. Returns the empty heap if the heap is empty.
 deleteMin :: Ord k => PrioHeap k a -> PrioHeap k a
@@ -568,7 +548,6 @@ deleteMin (Heap s _ _ f) = fromForest (s - 1) f
 -- > deleteFindMin heap = (findMin heap, deleteMin heap)
 deleteFindMin :: Ord k => PrioHeap k a -> ((k, a), PrioHeap k a)
 deleteFindMin heap = fromMaybe (errorEmpty "deleteFindMin") (minView heap)
-{-# INLINE deleteFindMin #-}
 
 -- | /O(log n)/. Update the value at the minimal key.
 updateMin :: Ord k => (a -> Maybe a) -> PrioHeap k a -> PrioHeap k a
@@ -586,7 +565,6 @@ updateMinWithKey f (Heap s key x forest) = case f key x of
 minView :: Ord k => PrioHeap k a -> Maybe ((k, a), PrioHeap k a)
 minView Empty = Nothing
 minView (Heap s key x f) = Just ((key, x), fromForest (s - 1) f)
-{-# INLINE minView #-}
 
 -- | /O(n * log n)/. @take n heap@ takes the @n@ smallest elements of @heap@, in ascending order.
 --

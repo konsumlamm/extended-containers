@@ -5,7 +5,7 @@ module Util.Internal.StrictList
 
 import Prelude hiding (reverse)
 
-import Control.DeepSeq
+import Control.DeepSeq (NFData(..))
 
 -- | A strict list.
 data List a = Nil | !a `Cons` !(List a)

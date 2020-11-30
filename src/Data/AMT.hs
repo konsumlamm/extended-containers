@@ -30,8 +30,11 @@ Violation of this condition is not detected and if the length limit is exceeded,
 
 == Implementation
 
-The implementation of 'Vector' uses array mapped tries.
+The implementation of 'Vector' uses array mapped tries. For a good explanation,
+see [this blog post](https://hypirion.com/musings/understanding-persistent-vector-pt-1).
 -}
+
+-- TODO: create Tail module with tail helper functions?
 
 module Data.AMT
     ( Vector
@@ -78,8 +81,6 @@ import Control.Monad.Zip (MonadZip(..))
 import Data.Bits
 import Data.Foldable (foldl', toList)
 import Data.Functor.Classes
-import Data.Functor.Compose
-import Data.Functor.Identity
 import Data.List.NonEmpty (NonEmpty(..), (!!))
 import qualified Data.List.NonEmpty as L
 import Data.Maybe (fromMaybe)
@@ -95,14 +96,14 @@ import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 #endif
 import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
-import qualified Prelude as P
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
 import Control.DeepSeq
 
-import Control.Monad.Trans.State.Strict (state, evalState)
 import qualified Data.Vector as V
 import qualified Data.Vector.Mutable as M
+
+import Util.Internal.Indexed (Indexed(..), evalIndexed)
 
 infixr 5 ><
 infixr 5 <|
@@ -184,7 +185,6 @@ instance Read a => Read (Vector a) where
         pure (fromList xs)
 #else
     readsPrec = readsPrec1
-    {-# INLINE readsPrec #-}
 #endif
 
 instance Eq1 Vector where
@@ -192,25 +192,20 @@ instance Eq1 Vector where
 
 instance Eq a => Eq (Vector a) where
     (==) = eq1
-    {-# INLINE (==) #-}
 
 instance Ord1 Vector where
     liftCompare f v1 v2 = liftCompare f (toList v1) (toList v2)
 
 instance Ord a => Ord (Vector a) where
     compare = compare1
-    {-# INLINE compare #-}
 
 instance Semigroup (Vector a) where
     (<>) = (><)
-    {-# INLINE (<>) #-}
 
 instance Monoid (Vector a) where
     mempty = empty
-    {-# INLINE mempty #-}
 
     mappend = (<>)
-    {-# INLINE mappend #-}
 
 instance Foldable Vector where
     foldr f acc = go
@@ -232,20 +227,16 @@ instance Foldable Vector where
 
 instance Functor Vector where
     fmap = map
-    {-# INLINE fmap #-}
 
 instance Traversable Vector where
     traverse f = go
       where
         go Empty = pure empty
         go (Root s offset h tree (x :| tail)) =
-            Root s offset h <$> traverseTree tree <*> (flip (:|) <$> traverseReverse f tail <*> f x)
+            Root s offset h <$> traverseTree tree <*> (flip (:|) <$> traverseReverse tail <*> f x)
 
-        traverseReverse f = go
-          where
-            go [] = pure []
-            go (x : xs) = flip (:) <$> go xs <*> f x
-        {-# INLINE traverseReverse #-}
+        traverseReverse [] = pure []
+        traverseReverse (x : xs) = flip (:) <$> traverseReverse xs <*> f x
 
         traverseTree (Internal v) = Internal <$> traverse traverseTree v
         traverseTree (Leaf v) = Leaf <$> traverse f v
@@ -256,19 +247,15 @@ instance IsList (Vector a) where
     type Item (Vector a) = a
 
     fromList = fromList
-    {-# INLINE fromList #-}
 
     toList = toList
-    {-# INLINE toList #-}
 
 instance a ~ Char => IsString (Vector a) where
     fromString = fromList
-    {-# INLINE fromString #-}
 #endif
 
 instance Applicative Vector where
     pure = singleton
-    {-# INLINE pure #-}
 
     fs <*> xs = foldl' (\acc f -> acc >< map f xs) empty fs
 
@@ -277,26 +264,20 @@ instance Monad Vector where
 
 instance Alternative Vector where
     empty = empty
-    {-# INLINE empty #-}
 
     (<|>) = (><)
-    {-# INLINE (<|>) #-}
 
 instance MonadPlus Vector
 
 instance MonadFail Vector where
     fail _ = empty
-    {-# INLINE fail #-}
 
 instance MonadZip Vector where
     mzip = zip
-    {-# INLINE mzip #-}
 
     mzipWith = zipWith
-    {-# INLINE mzipWith #-}
 
     munzip = unzip
-    {-# INLINE munzip #-}
 
 instance NFData a => NFData (Vector a) where
     rnf Empty = ()
@@ -308,19 +289,16 @@ instance NFData a => NFData (Vector a) where
 -- > empty = fromList []
 empty :: Vector a
 empty = Empty
-{-# INLINE empty #-}
 
 -- | /O(1)/. A vector with a single element.
 --
 -- > singleton x = fromList [x]
 singleton :: a -> Vector a
 singleton x = Root 1 0 0 (Leaf V.empty) (x :| [])
-{-# INLINE singleton #-}
 
 -- | /O(n * log n)/. Create a new vector from a list.
 fromList :: [a] -> Vector a
 fromList = foldl' (|>) empty
-{-# INLINE fromList #-}
 
 -- | Create a new vector of the given length from a function.
 fromFunction :: Int -> (Int -> a) -> Vector a
@@ -329,12 +307,14 @@ fromFunction n f = if n < 0 then errorNegativeLength "fromFunction" else go 0 em
     go i acc
         | i < n = go (i + 1) (acc |> f i)
         | otherwise = acc
-{-# INLINE fromFunction #-}
 
 -- | /O(n * log n)/. @replicate n x@ is a vector consisting of n copies of x.
 replicate :: Int -> a -> Vector a
-replicate n = if n < 0 then errorNegativeLength "replicate" else runIdentity . replicateA n . Identity
-{-# INLINE replicate #-}
+replicate n x = if n < 0 then errorNegativeLength "replicate" else go 0 empty
+  where
+    go i acc
+        | i < n = go (i + 1) (acc |> x)
+        | otherwise = acc
 
 -- | @replicateA@ is an 'Applicative' version of 'replicate'.
 replicateA :: Applicative f => Int -> f a -> f (Vector a)
@@ -343,7 +323,6 @@ replicateA n x = if n < 0 then errorNegativeLength "replicateA" else go 0 (pure 
     go i acc
         | i < n = go (i + 1) ((|>) <$> acc <*> x)
         | otherwise = acc
-{-# INLINE replicateA #-}
 
 -- | /O(n * log n)/. Build a vector from left to right by repeatedly applying a function to a seed value.
 unfoldr :: (b -> Maybe (a, b)) -> b -> Vector a
@@ -365,8 +344,11 @@ unfoldl f = go
 
 -- | Constructs a vector by repeatedly applying a function to a seed value.
 iterateN :: Int -> (a -> a) -> a -> Vector a
-iterateN n f x = if n < 0 then errorNegativeLength "iterateN" else replicateA n (state (\y -> (y, f y))) `evalState` x
-{-# INLINE iterateN #-}
+iterateN n f x = if n < 0 then errorNegativeLength "iterateN" else go 0 x empty
+  where
+    go i y acc
+        | i < n = go (i + 1) (f y) (acc |> y)
+        | otherwise = acc
 
 -- | /O(n * log n)/. Add an element to the left end of the vector.
 (<|) :: a -> Vector a -> Vector a
@@ -374,10 +356,9 @@ x <| v = fromList $ x : toList v
 
 -- | /O(n * log n)/. The first element and the vector without the first element or 'Nothing' if the vector is empty.
 viewl :: Vector a -> Maybe (a, Vector a)
-viewl Empty = Nothing
-viewl v@Root{} =
-    let ls = toList v
-    in Just (head ls, fromList $ P.tail ls)
+viewl v = case toList v of
+    [] -> Nothing
+    x : xs -> Just (x, fromList xs)
 
 -- | /O(log n)/. Add an element to the right end of the vector.
 (|>) :: Vector a -> a -> Vector a
@@ -393,10 +374,10 @@ Root s offset h tree tail |> x
     newPath h = Internal $ V.singleton (newPath (h - 1))
 
     insertTail sh (Internal v)
-        | index < V.length v = Internal $ adjustVector index (insertTail (sh - bits)) v
+        | idx < V.length v = Internal $ adjustVector idx (insertTail (sh - bits)) v
         | otherwise = Internal $ V.snoc v (newPath (sh `div` bits - 1))
       where
-        index = offset `shiftR` sh .&. mask
+        idx = offset `shiftR` sh .&. mask
     insertTail _ (Leaf _) = Leaf $ fromTail tail
 
 -- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
@@ -408,10 +389,10 @@ viewr (Root s offset h tree (x :| tail))
     | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf V.empty) (getTail tree), x)
     | otherwise = Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree (bits * h) tree) (getTail tree), x)
   where
-    index' = offset - tailSize - 1
+    idx = offset - tailSize - 1
 
     unsnocTree sh (Internal v) =
-        let subIndex = index' `shiftR` sh .&. mask
+        let subIndex = idx `shiftR` sh .&. mask
             new = V.unsafeTake (subIndex + 1) v
         in Internal $ adjustVector subIndex (unsnocTree (sh - bits)) new
     unsnocTree _ (Leaf v) = Leaf v
@@ -427,7 +408,6 @@ viewr (Root s offset h tree (x :| tail))
 last :: Vector a -> Maybe a
 last Empty = Nothing
 last (Root _ _ _ _ (x :| _)) = Just x
-{-# INLINE last #-}
 
 -- | /O(log n)/. Take the first n elements of the vector or the vector if n is larger than the length of the vector.
 -- Returns the empty vector if n is negative.
@@ -443,18 +423,18 @@ take n root@(Root s offset h tree tail)
         in normalize $ Root n ((n - 1) .&. complement mask) h (takeTree sh tree) (getTail sh tree)  -- n - 1 because if 'n .&. mask == 0', we need to subtract tailSize
   where
     -- index of the last element in the new vector
-    index = n - 1
+    idx = n - 1
 
-    index' = index - tailSize
+    idx' = idx - tailSize
 
     takeTree sh (Internal v) =
-        let subIndex = index' `shiftR` sh .&. mask
+        let subIndex = idx' `shiftR` sh .&. mask
             new = V.unsafeTake (subIndex + 1) v
         in Internal $ adjustVector subIndex (takeTree (sh - bits)) new
     takeTree _ (Leaf v) = Leaf v
 
-    getTail sh (Internal v) = getTail (sh - bits) (v `V.unsafeIndex` (index `shiftR` sh .&. mask))
-    getTail _ (Leaf v) = toTail $ V.take (index .&. mask + 1) v
+    getTail sh (Internal v) = getTail (sh - bits) (v `V.unsafeIndex` (idx `shiftR` sh .&. mask))
+    getTail _ (Leaf v) = toTail $ V.take (idx .&. mask + 1) v
 
     normalize (Root s offset h (Internal v) tail)
         | length v == 1 = normalize $ Root s offset (h - 1) (V.unsafeHead v) tail
@@ -501,11 +481,11 @@ adjust i f root@(Root s offset h tree tail)
     | otherwise = let (l, x : r) = L.splitAt (s - i - 1) tail in Root s offset h tree (L.fromList $ l ++ (f x : r))
   where
     adjustTree sh (Internal v) =
-        let index = i `shiftR` sh .&. mask
-        in Internal $ adjustVector index (adjustTree (sh - bits)) v
+        let idx = i `shiftR` sh .&. mask
+        in Internal $ adjustVector idx (adjustTree (sh - bits)) v
     adjustTree _ (Leaf v) =
-        let index = i .&. mask
-        in Leaf $ adjustVector index f v
+        let idx = i .&. mask
+        in Leaf $ adjustVector idx f v
 
 -- | /O(m * log n)/. Concatenate two vectors.
 (><) :: Vector a -> Vector a -> Vector a
@@ -534,12 +514,16 @@ foldMapWithIndex f = foldrWithIndex (\i -> mappend . f i) mempty
 
 -- | /O(n)/. Fold using the given left-associative function that has access to the index of an element.
 foldlWithIndex :: (b -> Int -> a -> b) -> b -> Vector a -> b
-foldlWithIndex f acc v = foldl (\g x i -> i `seq` f (g (i - 1)) i x) (const acc) v (length v - 1)
+foldlWithIndex f acc v = foldl f' (const acc) v (length v - 1)
+  where
+    f' g x i = i `seq` f (g (i - 1)) i x
 {-# INLINE foldlWithIndex #-}
 
 -- | /O(n)/. Fold using the given right-associative function that has access to the index of an element.
 foldrWithIndex :: (Int -> a -> b -> b) -> b -> Vector a -> b
-foldrWithIndex f acc v = foldr (\x g i -> i `seq` f i x (g (i + 1))) (const acc) v 0
+foldrWithIndex f acc v = foldr f' (const acc) v 0
+  where
+    f' x g i = i `seq` f i x (g (i + 1))
 {-# INLINE foldrWithIndex #-}
 
 -- | /O(n)/. A strict version of 'foldlWithIndex'.
@@ -560,9 +544,9 @@ foldrWithIndex' f acc v = foldlWithIndex f' id v acc
 
 -- | /O(n)/. Traverse the vector with a function that has access to the index of an element.
 traverseWithIndex :: Applicative f => (Int -> a -> f b) -> Vector a -> f (Vector b)
-traverseWithIndex f v = evalState (getCompose $ traverse (Compose . state . flip f') v) 0
+traverseWithIndex f v = evalIndexed (traverse (Indexed . f') v) 0
   where
-    f' i x = i `seq` (f i x, i + 1)
+    f' x i = i `seq` (f i x, i + 1)
 {-# INLINE traverseWithIndex #-}
 
 -- | /O(n)/. Pair each element in the vector with its index.
@@ -596,7 +580,6 @@ zipWith3 f v1 v2 v3 = zipWith ($) (zipWith f v1 v2) v3
 -- | /O(n)/. Transforms a vector of pairs into a vector of first components and a vector of second components.
 unzip :: Vector (a, b) -> (Vector a, Vector b)
 unzip v = (map fst v, map snd v)
-{-# INLINE unzip #-}
 
 -- | /O(n)/. Takes a vector of triples and returns three vectors, analogous to 'unzip'.
 unzip3 :: Vector (a, b, c) -> (Vector a, Vector b, Vector c)
@@ -605,9 +588,7 @@ unzip3 v = (map fst3 v, map snd3 v, map trd3 v)
     fst3 (x, _, _) = x
     snd3 (_, y, _) = y
     trd3 (_, _, z) = z
-{-# INLINE unzip3 #-}
 
 -- | /O(n)/. Create a list of index-value pairs from the vector.
 toIndexedList :: Vector a -> [(Int, a)]
 toIndexedList = foldrWithIndex (curry (:)) []
-{-# INLINE toIndexedList #-}

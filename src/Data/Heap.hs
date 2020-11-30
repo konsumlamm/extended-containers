@@ -15,9 +15,9 @@ Violation of this condition is not detected and if the length limit is exceeded,
 
 == Implementation
 
-The implementation uses skew binomial heaps, as described in
+The implementation uses skew binomial heaps, as described by:
 
-* Chris Okasaki, \"Purely Functional Data Structures\", 1998
+* Chris Okasaki, \"Purely Functional Data Structures\", 1998.
 -}
 
 module Data.Heap

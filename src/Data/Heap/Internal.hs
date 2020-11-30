@@ -147,7 +147,6 @@ instance Show1 Heap where
 
 instance Show a => Show (Heap a) where
     showsPrec = showsPrec1
-    {-# INLINE showsPrec #-}
 
 instance (Ord a, Read a) => Read (Heap a) where
 #ifdef __GLASGOW_HASKELL__
@@ -167,14 +166,11 @@ instance Ord a => Ord (Heap a) where
 
 instance Ord a => Semigroup (Heap a) where
     (<>) = union
-    {-# INLINE (<>) #-}
 
 instance Ord a => Monoid (Heap a) where
     mempty = empty
-    {-# INLINE mempty #-}
 
     mappend = (<>)
-    {-# INLINE mappend #-}
 
 instance Foldable Heap where
     foldr f acc = go
@@ -195,23 +191,18 @@ instance Foldable Heap where
 
     null Empty = True
     null Heap{} = False
-    {-# INLINE null #-}
 
     length = size
-    {-# INLINE length #-}
 
     minimum = findMin
-    {-# INLINE minimum #-}
 
 #ifdef __GLASGOW_HASKELL__
 instance Ord a => IsList (Heap a) where
     type Item (Heap a) = a
 
     fromList = fromList
-    {-# INLINE fromList #-}
 
     toList = toList
-    {-# INLINE toList #-}
 #endif
 
 instance NFData a => NFData (Heap a) where
@@ -224,19 +215,16 @@ instance NFData a => NFData (Heap a) where
 -- > empty = fromList []
 empty :: Heap a
 empty = Empty
-{-# INLINE empty #-}
 
 -- | /O(1)/. A heap with a single element.
 --
 -- > singleton x = fromList [x]
 singleton :: a -> Heap a
 singleton x = Heap 1 x Nil
-{-# INLINE singleton #-}
 
 -- | /O(n)/. Create a heap from a list.
 fromList :: Ord a => [a] -> Heap a
 fromList = foldl' (flip insert) empty
-{-# INLINE fromList #-}
 
 -- | /O(1)/. Insert a new value into the heap.
 insert :: Ord a => a -> Heap a -> Heap a
@@ -258,12 +246,10 @@ union (Heap s1 x1 f1) (Heap s2 x2 f2)
 -- > unions = foldl union empty
 unions :: (Foldable f, Ord a) => f (Heap a) -> Heap a
 unions = foldl' union empty
-{-# INLINE unions #-}
 
 -- | /O(n)/. Map a function over the heap.
 map :: Ord b => (a -> b) -> Heap a -> Heap b
 map f = fromList . fmap f . toList
-{-# INLINE map #-}
 
 -- | /O(n)/, Map an increasing function over the heap. The precondition is not checked.
 mapMonotonic :: (a -> b) -> Heap a -> Heap b
@@ -271,7 +257,6 @@ mapMonotonic _ Empty = Empty
 mapMonotonic f (Heap s x forest) = Heap s (f x) (fmap mapTree forest)
   where
     mapTree (Node r x xs c) = Node r (f x) (fmap f xs) (fmap mapTree c)
-{-# INLINE mapMonotonic #-}
 
 -- | /O(n)/. Filter all elements that satisfy the predicate.
 filter :: Ord a => (a -> Bool) -> Heap a -> Heap a
@@ -293,6 +278,7 @@ foldrOrd f acc = go
     go h = case minView h of
         Nothing -> acc
         Just (x, h') -> f x (go h')
+{-# INLINE foldrOrd #-}
 
 -- | /O(n * log n)/. Fold the values in the heap in order, using the given left-associative function.
 foldlOrd :: Ord a => (b -> a -> b) -> b -> Heap a -> b
@@ -301,6 +287,7 @@ foldlOrd f = go
     go acc h = case minView h of
         Nothing -> acc
         Just (x, h') -> go (f acc x) h'
+{-# INLINE foldlOrd #-}
 
 -- | /O(n * log n)/. A strict version of 'foldrOrd'.
 -- Each application of the function is evaluated before using the result in the next application.
@@ -322,7 +309,6 @@ foldlOrd' f acc h = foldrOrd f' id h acc
 size :: Heap a -> Int
 size Empty = 0
 size (Heap s _ _) = s
-{-# INLINE size #-}
 
 -- | /O(n)/. Is the value a member of the heap?
 member :: Ord a => a -> Heap a -> Bool
@@ -337,34 +323,28 @@ notMember x = not . member x
 
 -- | /O(log n)/. The minimal element in the heap. Calls 'error' if the heap is empty.
 findMin :: Heap a -> a
-findMin Empty = error "findMin: empty heap"
-findMin (Heap _ x _) = x
-{-# INLINE findMin #-}
+findMin heap = fromMaybe (errorEmpty "findMin") (lookupMin heap)
 
 -- | /O(log n)/. The minimal element in the heap or 'Nothing' if the heap is empty.
 lookupMin :: Heap a -> Maybe a
 lookupMin Empty = Nothing
 lookupMin (Heap _ x _) = Just $! x
-{-# INLINE lookupMin #-}
 
 -- | /O(log n)/. Delete the minimal element. Returns the empty heap if the heap is empty.
 deleteMin :: Ord a => Heap a -> Heap a
 deleteMin Empty = Empty
 deleteMin (Heap s _ f) = fromForest (s - 1) f
-{-# INLINE deleteMin #-}
 
 -- | /O(log n)/. Delete and find the minimal element. Calls 'error' if the heap is empty.
 --
 -- > deleteFindMin heap = (findMin heap, deleteMin heap)
 deleteFindMin :: Ord a => Heap a -> (a, Heap a)
 deleteFindMin heap = fromMaybe (errorEmpty "deleteFindMin") (minView heap)
-{-# INLINE deleteFindMin #-}
 
 -- | /O(log n)/. Retrieves the minimal element of the heap and the heap stripped of that element or 'Nothing' if the heap is empty.
 minView :: Ord a => Heap a -> Maybe (a, Heap a)
 minView Empty = Nothing
 minView (Heap s x f) = Just (x, fromForest (s - 1) f)
-{-# INLINE minView #-}
 
 -- | /O(n * log n)/. @take n heap@ takes the @n@ smallest elements of @heap@, in ascending order.
 --
@@ -439,14 +419,11 @@ nub h = case minView h of
 -- | /O(n * log n)/. Create a descending list from the heap.
 toAscList :: Ord a => Heap a -> [a]
 toAscList = foldrOrd (:) []
-{-# INLINE toAscList #-}
 
 -- | /O(n * log n)/. Create a descending list from the heap.
 toDescList :: Ord a => Heap a -> [a]
 toDescList = foldlOrd (flip (:)) []
-{-# INLINE toDescList #-}
 
 -- | /O(n * log n)/. Sort a list using a heap. The sort is unstable.
 heapsort :: Ord a => [a] -> [a]
 heapsort = toAscList . fromList
-{-# INLINE heapsort #-}
