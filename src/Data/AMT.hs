@@ -480,7 +480,7 @@ index i = fromMaybe (error "AMT.index: index out of range") . lookup i
 (!?) = flip lookup
 {-# INLINE (!?) #-}
 
--- | /O(log n)/. Flipped version of 'lookup'.
+-- | /O(log n)/. Flipped version of 'index'.
 (!) :: Vector a -> Int -> a
 (!) = flip index
 {-# INLINE (!) #-}
