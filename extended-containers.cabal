@@ -1,20 +1,20 @@
-name:                extended-containers
-version:             0.1.0.0
-synopsis:            Heap and Vector container types
+name:               extended-containers
+version:            0.1.0.0
+synopsis:           Heap and Vector container types
 description:
   This package contains general-purpose implementations of various immutable container types
   including vectors, heaps and priority heaps.
-homepage:            https://github.com/konsumlamm/extended-containers#readme
-bug-reports:         https://github.com/konsumlamm/extended-containers/issues
-license:             BSD3
-license-file:        LICENSE
-author:              konsumlamm
-maintainer:          konsumlamm@gmail.com
-copyright:           2019 konsumlamm
-build-type:          Simple
-extra-source-files:  README.md
-category:            Data Structures
-cabal-version:       >= 1.10
+homepage:           https://github.com/konsumlamm/extended-containers#readme
+bug-reports:        https://github.com/konsumlamm/extended-containers/issues
+license:            BSD3
+license-file:       LICENSE
+author:             konsumlamm
+maintainer:         konsumlamm@gmail.com
+copyright:          2019 konsumlamm
+build-type:         Simple
+extra-source-files: README.md
+category:           Data Structures
+cabal-version:      >= 1.10
 tested-with:
   GHC == 8.0.1,
   GHC == 8.0.2,
@@ -32,34 +32,35 @@ source-repository head
   location: https://github.com/konsumlamm/extended-containers.git
 
 library
-  hs-source-dirs:      src
+  hs-source-dirs:       src
   exposed-modules:
     Data.AMT
     Data.Heap
     Data.PrioHeap
   other-modules:
     Data.Heap.Internal
-    Util.Internal.StrictList
     Util.Internal.Indexed
-  ghc-options:         -O2 -Wall -Wno-name-shadowing -Wredundant-constraints
+    Util.Internal.StrictList
+  ghc-options:          -O2 -Wall -Wno-name-shadowing -Wredundant-constraints
   build-depends:
     base         >= 4.9 && < 5,
     deepseq      >= 1.4.2 && < 1.5,
     vector       >= 0.11 && < 0.13
-  default-language:    Haskell2010
+  default-language:     Haskell2010
 
 test-suite test
-  hs-source-dirs:      test
-  main-is:             Spec.hs
+  hs-source-dirs:       test
+  main-is:              Spec.hs
   other-modules:
     Data.AMT.Spec
     Data.Heap.Spec
     Data.PrioHeap.Spec
-  type:                exitcode-stdio-1.0
-  ghc-options:         -Wall -Wno-orphans
+  type:                 exitcode-stdio-1.0
+  ghc-options:          -Wall -Wno-orphans -Wno-type-defaults
   build-depends:
     base                >= 4.9 && < 5,
     extended-containers,
     hspec               >= 2.2.4 && < 2.8,
     QuickCheck          >= 2.8.2 && < 2.15
-  default-language:    Haskell2010
+  default-language:     Haskell2010
+  default-extensions:   ExtendedDefaultRules
