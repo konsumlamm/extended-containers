@@ -92,7 +92,7 @@ import qualified GHC.Exts as Exts
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile, uncurry)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
-import Control.DeepSeq
+import Control.DeepSeq (NFData(..))
 
 import qualified Data.Heap.Internal as Heap
 import Util.Internal.StrictList

@@ -1,6 +1,6 @@
 module Util.Internal.Indexed where
 
--- @Compose (State Int) f a@
+-- | > Compose (State Int) f a
 newtype Indexed f a = Indexed { runIndexed :: Int -> (f a, Int) }
 
 instance Functor f => Functor (Indexed f) where

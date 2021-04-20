@@ -34,7 +34,7 @@ The implementation of 'Vector' uses array mapped tries. For a good explanation,
 see [this blog post](https://hypirion.com/musings/understanding-persistent-vector-pt-1).
 -}
 
--- TODO: create Tail module with tail helper functions?
+-- TODO: document unsafe
 
 module Data.AMT
     ( Vector
@@ -98,11 +98,9 @@ import qualified GHC.Exts as Exts
 import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
-import Control.DeepSeq
+import Control.DeepSeq (NFData(..))
 
-import qualified Data.Vector as V
-import qualified Data.Vector.Mutable as M
-
+import qualified Util.Internal.Array as A
 import Util.Internal.Indexed (Indexed(..), evalIndexed)
 
 infixr 5 ><
@@ -110,18 +108,18 @@ infixr 5 <|
 infixl 5 |>
 
 data Tree a
-    = Internal !(V.Vector (Tree a))
-    | Leaf !(V.Vector a)
+    = Internal !(A.Array (Tree a))
+    | Leaf !(A.Array a)
 
 -- | An array mapped trie.
 data Vector a
     = Empty
     | Root
-        {-# UNPACK #-} !Int  -- size
-        {-# UNPACK #-} !Int  -- offset (number of elements in the tree)
-        {-# UNPACK #-} !Int  -- height (of the tree)
-        !(Tree a)  -- tree
-        !(NonEmpty a)  -- tail (reversed)
+        {-# UNPACK #-} !Int  -- ^ size
+        {-# UNPACK #-} !Int  -- ^ offset (number of elements in the tree)
+        {-# UNPACK #-} !Int  -- ^ height (of the tree)
+        !(Tree a)  -- ^ tree
+        !(NonEmpty a)  -- ^ tail (reversed)
 
 instance NFData a => NFData (Tree a) where
     rnf (Internal v) = rnf v
@@ -142,30 +140,6 @@ tailSize = 1 `shiftL` bits
 -- | The mask used to extract the index into the array.
 mask :: Int
 mask = tailSize - 1
-
--- | Update the element at the specified index. No bounds checks are performed.
-adjustVector :: Int -> (a -> a) -> V.Vector a -> V.Vector a
-adjustVector i f = V.modify (\v -> M.unsafeModify v f i)
-{-# INLINE adjustVector #-}
-
--- | Convert a full tail into a vector.
---
--- > fromTail = V.fromListN tailSize . reverse . toList
-fromTail :: L.NonEmpty a -> V.Vector a
-fromTail (x :| xs) = V.create $ do
-    v <- M.new tailSize
-    M.unsafeWrite v mask x  -- mask = tailSize - 1
-    loop v (tailSize - 2) xs
-    pure v
-  where
-    loop _ _ [] = pure ()
-    loop v i (y : ys) = M.unsafeWrite v i y *> loop v (i - 1) ys
-
--- | Convert a vector into a tail.
---
--- > toTail = L.fromList . reverse . toList
-toTail :: V.Vector a -> L.NonEmpty a
-toTail = L.fromList . foldl (flip (:)) []
 
 instance Show1 Vector where
     liftShowsPrec sp sl p v = showsUnaryWith (liftShowsPrec sp sl) "fromList" p (toList v)
@@ -294,7 +268,7 @@ empty = Empty
 --
 -- > singleton x = fromList [x]
 singleton :: a -> Vector a
-singleton x = Root 1 0 0 (Leaf V.empty) (x :| [])
+singleton x = Root 1 0 0 (Leaf A.empty) (x :| [])
 
 -- | /O(n * log n)/. Create a new vector from a list.
 fromList :: [a] -> Vector a
@@ -365,20 +339,20 @@ viewl v = case toList v of
 Empty |> x = singleton x
 Root s offset h tree tail |> x
     | s .&. mask /= 0 = Root (s + 1) offset h tree (x L.<| tail)
-    | offset == 0 = Root (s + 1) s h (Leaf $ fromTail tail) (x :| [])
-    | offset == 1 `shiftL` (bits * (h + 1)) = Root (s + 1) s (h + 1) (Internal $ V.fromListN 2 [tree, newPath h]) (x :| [])
+    | offset == 0 = Root (s + 1) s h (Leaf $ A.fromTail tailSize tail) (x :| [])
+    | offset == 1 `shiftL` (bits * (h + 1)) = Root (s + 1) s (h + 1) (Internal $ A.fromList2 tree (newPath h)) (x :| [])
     | otherwise = Root (s + 1) s h (insertTail (bits * h) tree) (x :| [])
   where
     -- create a new path from the old tail
-    newPath 0 = Leaf $ fromTail tail
-    newPath h = Internal $ V.singleton (newPath (h - 1))
+    newPath 0 = Leaf $ A.fromTail tailSize tail
+    newPath h = Internal $ A.singleton (newPath (h - 1))
 
     insertTail sh (Internal v)
-        | idx < V.length v = Internal $ adjustVector idx (insertTail (sh - bits)) v
-        | otherwise = Internal $ V.snoc v (newPath (sh `div` bits - 1))
+        | idx < length v = Internal $ A.adjust idx (insertTail (sh - bits)) v
+        | otherwise = Internal $ A.snoc v (newPath (sh `div` bits - 1))
       where
         idx = offset `shiftR` sh .&. mask
-    insertTail _ (Leaf _) = Leaf $ fromTail tail
+    insertTail _ (Leaf _) = Leaf $ A.fromTail tailSize tail
 
 -- | /O(log n)/. The vector without the last element and the last element or 'Nothing' if the vector is empty.
 viewr :: Vector a -> Maybe (Vector a, a)
@@ -386,22 +360,22 @@ viewr Empty = Nothing
 viewr (Root s offset h tree (x :| tail))
     | not (null tail) = Just (Root (s - 1) offset h tree (L.fromList tail), x)
     | s == 1 = Just (Empty, x)
-    | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf V.empty) (getTail tree), x)
+    | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf A.empty) (getTail tree), x)
     | otherwise = Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree (bits * h) tree) (getTail tree), x)
   where
     idx = offset - tailSize - 1
 
     unsnocTree sh (Internal v) =
         let subIndex = idx `shiftR` sh .&. mask
-            new = V.unsafeTake (subIndex + 1) v
-        in Internal $ adjustVector subIndex (unsnocTree (sh - bits)) new
+            new = A.take (subIndex + 1) v
+        in Internal $ A.adjust subIndex (unsnocTree (sh - bits)) new
     unsnocTree _ (Leaf v) = Leaf v
 
-    getTail (Internal v) = getTail (V.unsafeLast v)
-    getTail (Leaf v) = toTail v
+    getTail (Internal v) = getTail (A.last v)
+    getTail (Leaf v) = A.toTail v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = Root s offset (h - 1) (V.unsafeHead v) tail
+        | length v == 1 = Root s offset (h - 1) (A.head v) tail
     normalize v = v
 
 -- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
@@ -417,7 +391,7 @@ take n root@(Root s offset h tree tail)
     | n <= 0 = Empty
     | n >= s = root
     | n > offset = Root n offset h tree (L.fromList $ L.drop (s - n) tail)
-    | n <= tailSize = Root n 0 0 (Leaf V.empty) (getTail (bits * h) tree)
+    | n <= tailSize = Root n 0 0 (Leaf A.empty) (getTail (bits * h) tree)
     | otherwise =
         let sh = bits * h
         in normalize $ Root n ((n - 1) .&. complement mask) h (takeTree sh tree) (getTail sh tree)  -- n - 1 because if 'n .&. mask == 0', we need to subtract tailSize
@@ -429,15 +403,15 @@ take n root@(Root s offset h tree tail)
 
     takeTree sh (Internal v) =
         let subIndex = idx' `shiftR` sh .&. mask
-            new = V.unsafeTake (subIndex + 1) v
-        in Internal $ adjustVector subIndex (takeTree (sh - bits)) new
+            new = A.take (subIndex + 1) v
+        in Internal $ A.adjust subIndex (takeTree (sh - bits)) new
     takeTree _ (Leaf v) = Leaf v
 
-    getTail sh (Internal v) = getTail (sh - bits) (v `V.unsafeIndex` (idx `shiftR` sh .&. mask))
-    getTail _ (Leaf v) = toTail $ V.take (idx .&. mask + 1) v
+    getTail sh (Internal v) = getTail (sh - bits) (A.index (idx `shiftR` sh .&. mask) v)
+    getTail _ (Leaf v) = A.toTail $ A.take (idx .&. mask + 1) v
 
     normalize (Root s offset h (Internal v) tail)
-        | length v == 1 = normalize $ Root s offset (h - 1) (V.unsafeHead v) tail
+        | length v == 1 = normalize $ Root s offset (h - 1) (A.head v) tail
     normalize v = v
 
 -- | /O(log n)/. The element at the index or 'Nothing' if the index is out of range.
@@ -448,8 +422,8 @@ lookup i (Root s offset h tree tail)
     | i < offset = Just $ lookupTree (bits * h) tree
     | otherwise = Just $ tail !! (s - i - 1)
   where
-    lookupTree sh (Internal v) = lookupTree (sh - bits) (v `V.unsafeIndex` (i `shiftR` sh .&. mask))
-    lookupTree _ (Leaf v) = v `V.unsafeIndex` (i .&. mask)
+    lookupTree sh (Internal v) = lookupTree (sh - bits) (A.index (i `shiftR` sh .&. mask) v)
+    lookupTree _ (Leaf v) = A.index (i .&. mask) v
 
 -- | /O(log n)/. The element at the index. Calls 'error' if the index is out of range.
 index :: Int -> Vector a -> a
@@ -482,10 +456,10 @@ adjust i f root@(Root s offset h tree tail)
   where
     adjustTree sh (Internal v) =
         let idx = i `shiftR` sh .&. mask
-        in Internal $ adjustVector idx (adjustTree (sh - bits)) v
+        in Internal $ A.adjust idx (adjustTree (sh - bits)) v
     adjustTree _ (Leaf v) =
         let idx = i .&. mask
-        in Leaf $ adjustVector idx f v
+        in Leaf $ A.adjust idx f v
 
 -- | /O(m * log n)/. Concatenate two vectors.
 (><) :: Vector a -> Vector a -> Vector a

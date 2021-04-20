@@ -1,3 +1,5 @@
+-- | Used by "Data.Heap" and "Data.PrioHeap".
+
 module Util.Internal.StrictList
     ( List(..)
     , reverse

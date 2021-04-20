@@ -10,9 +10,11 @@ license:            BSD3
 license-file:       LICENSE
 author:             konsumlamm
 maintainer:         konsumlamm@gmail.com
-copyright:          2019 konsumlamm
+copyright:          2019-2021 konsumlamm
 build-type:         Simple
-extra-source-files: README.md
+extra-source-files:
+  CHANGELOG.md
+  README.md
 category:           Data Structures
 cabal-version:      >= 1.10
 tested-with:
@@ -39,13 +41,14 @@ library
     Data.PrioHeap
   other-modules:
     Data.Heap.Internal
+    Util.Internal.Array
     Util.Internal.Indexed
     Util.Internal.StrictList
   ghc-options:          -O2 -Wall -Wno-name-shadowing -Wredundant-constraints
   build-depends:
-    base         >= 4.9 && < 5,
-    deepseq      >= 1.4.2 && < 1.5,
-    vector       >= 0.11 && < 0.13
+    base    >= 4.9 && < 5,
+    deepseq >= 1.4.2 && < 1.5,
+    vector  >= 0.11 && < 0.13
   default-language:     Haskell2010
 
 test-suite test
