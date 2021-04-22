@@ -505,7 +505,7 @@ member kx (Heap _ ky _ forest) = kx <= ky && any (kx `elemTree`) forest
   where
     kx `elemTree` (Node _ ky _ ys c) = kx <= ky && (any (\(Pair a _) -> kx == a) ys || any (kx `elemTree`) c)
 
--- | /O(n)/. Is the value not a member of the heap?
+-- | /O(n)/. Is the key not a member of the heap?
 notMember :: Ord k => k -> PrioHeap k a -> Bool
 notMember key = not . member key
 
