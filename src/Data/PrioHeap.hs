@@ -1,7 +1,5 @@
 {-# LANGUAGE CPP #-}
-#ifdef __GLASGOW_HASKELL__
 {-# LANGUAGE TypeFamilies #-}
-#endif
 
 {- |
 = Finite priority heaps
@@ -85,10 +83,8 @@ import Data.Maybe (fromMaybe)
 #if !(MIN_VERSION_base(4,11,0))
 import Data.Semigroup (Semigroup((<>)))
 #endif
-#ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
-#endif
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile, uncurry)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
@@ -205,14 +201,10 @@ instance (Ord k, Read k) => Read1 (PrioHeap k) where
         rl' = liftReadList rp rl
 
 instance (Ord k, Read k, Read a) => Read (PrioHeap k a) where
-#ifdef __GLASGOW_HASKELL__
     readPrec = parens $ prec 10 $ do
         Ident "fromList" <- lexP
         xs <- readPrec
         pure (fromList xs)
-#else
-    readsPrec = readsPrec1
-#endif
 
 instance Ord k => Eq1 (PrioHeap k) where
     liftEq f heap1 heap2 = size heap1 == size heap2 && liftEq (liftEq f) (toAscList heap1) (toAscList heap2)
@@ -262,14 +254,12 @@ instance Traversable (PrioHeap k) where
     traverse f = traverseWithKey (const f)
     {-# INLINE traverse #-}
 
-#ifdef __GLASGOW_HASKELL__
 instance Ord k => IsList (PrioHeap k a) where
     type Item (PrioHeap k a) = (k, a)
 
     fromList = fromList
 
     toList = toList
-#endif
 
 instance (NFData k, NFData a) => NFData (PrioHeap k a) where
     rnf Empty = ()

@@ -1,7 +1,5 @@
 {-# LANGUAGE CPP #-}
-#ifdef __GLASGOW_HASKELL__
 {-# LANGUAGE TypeFamilies #-}
-#endif
 
 {- |
 = Finite vectors
@@ -33,8 +31,6 @@ Violation of this condition is not detected and if the length limit is exceeded,
 The implementation of 'Vector' uses array mapped tries. For a good explanation,
 see [this blog post](https://hypirion.com/musings/understanding-persistent-vector-pt-1).
 -}
-
--- TODO: document unsafe
 
 module Data.AMT
     ( Vector
@@ -86,14 +82,10 @@ import Data.Maybe (fromMaybe)
 #if !(MIN_VERSION_base(4,11,0))
 import Data.Semigroup (Semigroup((<>)))
 #endif
-#ifdef __GLASGOW_HASKELL__
 import Data.String (IsString)
-#endif
 import Data.Traversable (mapAccumL)
-#ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
-#endif
 import Prelude hiding ((!!), head, last, lookup, map, replicate, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
@@ -107,7 +99,7 @@ infixr 5 <|
 infixl 5 |>
 
 data Tree a
-    = Internal !(A.Array (Tree a))
+    = Internal !(A.Array (Tree a)) -- never empty
     | Leaf !(A.Array a)
 
 -- | An array mapped trie.
@@ -151,14 +143,10 @@ instance Read1 Vector where
     liftReadsPrec rp rl = readsData $ readsUnaryWith (liftReadsPrec rp rl) "fromList" fromList
 
 instance Read a => Read (Vector a) where
-#ifdef __GLASGOW_HASKELL__
     readPrec = parens $ prec 10 $ do
         Ident "fromList" <- lexP
         xs <- readPrec
         pure (fromList xs)
-#else
-    readsPrec = readsPrec1
-#endif
 
 instance Eq1 Vector where
     liftEq f v1 v2 = length v1 == length v2 && liftEq f (toList v1) (toList v2)
@@ -215,7 +203,6 @@ instance Traversable Vector where
         traverseTree (Leaf v) = Leaf <$> traverse f v
     {-# INLINE traverse #-}
 
-#ifdef __GLASGOW_HASKELL__
 instance IsList (Vector a) where
     type Item (Vector a) = a
 
@@ -225,7 +212,6 @@ instance IsList (Vector a) where
 
 instance a ~ Char => IsString (Vector a) where
     fromString = fromList
-#endif
 
 instance Applicative Vector where
     pure = singleton
@@ -338,6 +324,7 @@ viewl v = case toList v of
 Empty |> x = singleton x
 Root s offset h tree tail |> x
     | s .&. mask /= 0 = Root (s + 1) offset h tree (x L.<| tail)
+    -- tail is full
     | offset == 0 = Root (s + 1) s h (Leaf $ A.fromTail tailSize tail) (x :| [])
     | offset == 1 `shiftL` (bits * (h + 1)) = Root (s + 1) s (h + 1) (Internal $ A.fromList2 tree (newPath h)) (x :| [])
     | otherwise = Root (s + 1) s h (insertTail (bits * h) tree) (x :| [])
@@ -360,15 +347,15 @@ viewr (Root s offset h tree (x :| tail))
     | not (null tail) = Just (Root (s - 1) offset h tree (L.fromList tail), x)
     | s == 1 = Just (Empty, x)
     | s == tailSize + 1 = Just (Root (s - 1) 0 0 (Leaf A.empty) (getTail tree), x)
-    | otherwise = Just (normalize $ Root (s - 1) (offset - tailSize) h (unsnocTree (bits * h) tree) (getTail tree), x)
+    | otherwise = Just (normalize $ Root (s - 1) (offset - tailSize) h (initTree (bits * h) tree) (getTail tree), x)
   where
     idx = offset - tailSize - 1
 
-    unsnocTree sh (Internal v) =
+    initTree sh (Internal v) =
         let subIndex = idx `shiftR` sh .&. mask
             new = A.take (subIndex + 1) v
-        in Internal $ A.adjust subIndex (unsnocTree (sh - bits)) new
-    unsnocTree _ (Leaf v) = Leaf v
+        in Internal $ A.adjust subIndex (initTree (sh - bits)) new
+    initTree _ (Leaf v) = Leaf v
 
     getTail (Internal v) = getTail (A.last v)
     getTail (Leaf v) = A.toTail v
@@ -404,8 +391,7 @@ take n root@(Root s offset h tree tail)
         let sh = bits * h
         in normalize $ Root n ((n - 1) .&. complement mask) h (takeTree sh tree) (getTail sh tree)  -- n - 1 because if 'n .&. mask == 0', we need to subtract tailSize
   where
-    -- index of the last element in the new vector
-    idx = n - 1
+    idx = n - 1 -- index of the last element in the new vector
 
     idx' = idx - tailSize
 

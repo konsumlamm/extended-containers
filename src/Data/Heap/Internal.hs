@@ -1,7 +1,5 @@
 {-# LANGUAGE CPP #-}
-#ifdef __GLASGOW_HASKELL__
 {-# LANGUAGE TypeFamilies #-}
-#endif
 
 module Data.Heap.Internal
     ( Heap(..)
@@ -53,10 +51,8 @@ import Data.Maybe (fromMaybe)
 #if !(MIN_VERSION_base(4,11,0))
 import Data.Semigroup (Semigroup((<>)))
 #endif
-#ifdef __GLASGOW_HASKELL__
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
-#endif
 import Prelude hiding (break, drop, dropWhile, filter, map, reverse, span, splitAt, take, takeWhile)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
@@ -149,14 +145,10 @@ instance Show a => Show (Heap a) where
     showsPrec = showsPrec1
 
 instance (Ord a, Read a) => Read (Heap a) where
-#ifdef __GLASGOW_HASKELL__
     readPrec = parens $ prec 10 $ do
         Ident "fromList" <- lexP
         xs <- readPrec
         pure (fromList xs)
-#else
-    readsPrec = readsData $ readsUnaryWith readList "fromList" fromList
-#endif
 
 instance Ord a => Eq (Heap a) where
     heap1 == heap2 = size heap1 == size heap2 && toAscList heap1 == toAscList heap2
@@ -196,14 +188,12 @@ instance Foldable Heap where
 
     minimum = findMin
 
-#ifdef __GLASGOW_HASKELL__
 instance Ord a => IsList (Heap a) where
     type Item (Heap a) = a
 
     fromList = fromList
 
     toList = toList
-#endif
 
 instance NFData a => NFData (Heap a) where
     rnf Empty = ()
