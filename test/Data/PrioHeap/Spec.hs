@@ -38,7 +38,7 @@ spec = describe "Data.PrioHeap" $ do
 
         describe "deleteMin" $ do
             prop "deletes the minimum element" $ \xs -> P.deleteMin (fromList xs) === maybe P.empty (fromList . snd) (uncons (sort xs))
-            prop "works for the empty heap" $ P.deleteMin P.empty `shouldBe` P.empty
+            it "works for the empty heap" $ P.deleteMin P.empty `shouldBe` P.empty
 
         describe "filterWithKey" $ do
             prop "filters the elements that satisfy the predicate" $ \xs -> P.filterWithKey (\k () -> even k) (fromList xs) === fromList (filter (even . fst) xs)

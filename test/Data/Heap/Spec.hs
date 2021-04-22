@@ -35,7 +35,7 @@ spec = describe "Data.Heap" $ do
 
         describe "deleteMin" $ do
             prop "deletes the minimum element" $ \xs -> H.deleteMin (H.fromList xs) === maybe H.empty (H.fromList . snd) (uncons (sort xs))
-            prop "works for the empty heap" $ H.deleteMin H.empty `shouldBe` H.empty
+            it "works for the empty heap" $ H.deleteMin H.empty `shouldBe` H.empty
 
         describe "filter" $ do
             prop "filters the elements that satisfy the predicate" $ \xs -> H.filter even (H.fromList xs) === H.fromList (filter even xs)

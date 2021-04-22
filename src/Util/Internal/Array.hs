@@ -14,7 +14,7 @@ module Util.Internal.Array
     , toTail
     ) where
 
-import Data.List.NonEmpty as L hiding (head, last, take, length)
+import qualified Data.List.NonEmpty as L
 import Prelude hiding (head, last, take)
 
 import Data.Primitive.SmallArray
@@ -65,7 +65,7 @@ fromList2 x y = runSmallArray $ do
 --
 -- > fromTail = A.fromListN tailSize . reverse . toList
 fromTail :: Int -> L.NonEmpty a -> Array a
-fromTail size (x :| xs) = runSmallArray $ do
+fromTail size (x L.:| xs) = runSmallArray $ do
     arr <- newSmallArray size x
     let loop _ [] = pure ()
         loop i (y : ys) = writeSmallArray arr i y *> loop (i - 1) ys
