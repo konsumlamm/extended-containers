@@ -33,20 +33,20 @@ spec = describe "Data.AMT" $ do
         prop "returns the length" $ \ls -> length (V.fromList ls) === length ls
         it "returns 0 for the empty vector" $ length V.empty `shouldBe` 0
 
-    describe "snoc" $ do
+    describe "|>" $ do
         prop "appends an element to the back" $ \v x -> toList (v V.|> x) === toList v ++ [x]
         prop "works for the empty vector" $ \x -> V.empty V.|> x `shouldBe` V.singleton x
 
-    describe "unsnoc" $ do
+    describe "viewr" $ do
         prop "analyzes the back of the vector" $ \v -> V.viewr v === fmap (\(xs, x) -> (V.fromList xs, x)) (unsnoc (toList v))
         it "returns Nothing for the empty vector" $ V.viewr V.empty `shouldBe` Nothing
 
     describe "take" $ do
-        prop "takes the first n elements" $ \n xs -> V.take n (V.fromList xs) === V.fromList (take n xs)
+        prop "takes the first n elements" $ \(Positive n) xs -> V.take n (V.fromList xs) === V.fromList (take n xs)
         prop "returns the empty vector for non-positive n" $ \(NonPositive n) v -> V.take n v === V.empty
         prop "does nothing for the empty vector" $ \n -> V.take n V.empty === V.empty
 
     describe "lookup" $ do
-        prop "returns the ith element" $ \i v -> V.lookup i v === toList v !? i
+        prop "returns the ith element" $ \(NonNegative i) v -> V.lookup i v === toList v !? i
         prop "returns Nothing for negative indices" $ \(Negative i) v -> V.lookup i v === Nothing
         prop "returns Nothing for the empty vector" $ \i -> V.lookup i V.empty === Nothing

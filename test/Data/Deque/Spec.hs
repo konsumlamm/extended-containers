@@ -52,3 +52,12 @@ spec = describe "Data.Deque" $ do
     describe "viewr" $ do
        prop "analyzes the back of the deque" $ \d -> fromViewR (D.viewr d) === fmap (\(xs, x) -> (D.fromList xs, x)) (unsnoc (toList d))
        it "returns Nothing for the empty deque" $ D.viewr D.empty `shouldBe` D.EmptyR
+
+    describe "reverse" $ do
+        prop "satisfies `reverse . reverse == id`" $ \d -> D.reverse (D.reverse d) === d
+        prop "reverses the deque" $ \d -> toList (D.reverse d) === reverse (toList d)
+        it "works for the empty deque" $ D.reverse D.empty `shouldBe` D.empty
+
+    describe "><" $ do
+        prop "concatenates the deques" $ \d1 d2 -> toList (d1 D.>< d2) === toList d1 ++ toList d2
+        prop "does nothing for the empty deque" $ \d -> d D.>< D.empty === d .&&. D.empty D.>< d === d
