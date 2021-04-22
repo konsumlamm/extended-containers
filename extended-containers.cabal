@@ -34,6 +34,7 @@ library
   hs-source-dirs:       src
   exposed-modules:
     Data.AMT
+    Data.Deque
     Data.Heap
     Data.PrioHeap
   other-modules:
@@ -53,6 +54,7 @@ test-suite test
   main-is:              Spec.hs
   other-modules:
     Data.AMT.Spec
+    Data.Deque.Spec
     Data.Heap.Spec
     Data.PrioHeap.Spec
   type:                 exitcode-stdio-1.0
