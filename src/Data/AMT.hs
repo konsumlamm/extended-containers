@@ -17,7 +17,7 @@ This module should be imported qualified, to avoid name clashes with the 'Prelud
 
 The worst case running time complexities are given, with /n/ referring the the number of elements in the vector.
 A 'Vector' is particularly efficient for applications that require a lot of indexing and updates.
-All logarithms are base 16, which means that /O(log n)/ behaves like /O(1)/ in practice.
+All logarithms are base 16, which means that /O(log n)/ behaves more like /O(1)/ in practice.
 
 For a similar container with efficient concatenation and splitting, but slower indexing and updates,
 see [Seq](https://hackage.haskell.org/package/containers/docs/Data-Sequence.html) from the
@@ -45,9 +45,8 @@ module Data.AMT
     , unfoldr, unfoldl, iterateN
     , (<|), (|>), (><)
     -- * Deconstruction/Subranges
-    , viewl
-    , viewr
-    , last
+    , viewl, viewr
+    , head, last
     , take
     -- * Indexing
     , lookup, index
@@ -95,7 +94,7 @@ import Data.Traversable (mapAccumL)
 import GHC.Exts (IsList)
 import qualified GHC.Exts as Exts
 #endif
-import Prelude hiding ((!!), last, lookup, map, replicate, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
+import Prelude hiding ((!!), head, last, lookup, map, replicate, tail, take, unzip, unzip3, zip, zipWith, zip3, zipWith3)
 import Text.Read (Lexeme(Ident), lexP, parens, prec, readPrec)
 
 import Control.DeepSeq (NFData(..))
@@ -377,6 +376,15 @@ viewr (Root s offset h tree (x :| tail))
     normalize (Root s offset h (Internal v) tail)
         | length v == 1 = Root s offset (h - 1) (A.head v) tail
     normalize v = v
+
+-- | /O(log n)/. The first element in the vector or 'Nothing' if the vector is empty.
+head :: Vector a -> Maybe a
+head Empty = Nothing
+head (Root _ 0 _ _ tail) = Just (L.last tail) -- offset 0, all elements are in the tail
+head (Root _ _ _ tree _) = Just (headTree tree)
+  where
+    headTree (Internal v) = headTree (A.head v)
+    headTree (Leaf v) = A.head v
 
 -- | /O(1)/. The last element in the vector or 'Nothing' if the vector is empty.
 last :: Vector a -> Maybe a
