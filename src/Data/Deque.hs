@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE PatternSynonyms #-}
 
 {- TODO:
@@ -12,6 +12,10 @@
 = Finite deques
 
 The @'Deque' a@ type represents a finite deque (double ended queue) of elements of type @a@.
+
+== Pattern Synonyms
+
+Deques can be constructed and matched using the 'Empty', ':<|', and ':|>' pattern synonyms.
 
 == Performance
 
@@ -35,14 +39,12 @@ The implementation used is described in
 * Chris Okasaki, [\"Simple and Efficient Purely Functional Queues and Deques\"](http://citeseerx.ist.psu.edu/viewdoc/summary;jsessionid=956CDC491C58DEDC24DBDC238E1A41FF?doi=10.1.1.47.8825), 1998
 -}
 
+-- TODO: remove some functions?
+-- TODO: use only pattern synonyms?
+-- TODO: remove unnecessary INLINEs
+
 module Data.Deque
     ( Deque(Empty, (:<|), (:|>))
-    {- |
-    == Pattern Synonyms
-
-    With GHC, the 'Empty', ':<|' and ':|>' pattern synonyms are available.
-    They can be used to construct and match deques.
-    -}
     -- * Construction
     , empty
     , singleton
@@ -118,7 +120,7 @@ tail :: [a] -> [a]
 tail [] = []
 tail (_ : xs) = xs
 
--- Invariant: @length ls <= 3 * length rs + 1 && length rs <= 3 * length ls + 1@.
+-- Invariant: @length ls <= 3 * length rs + 1 && 3 * length ls + 1 >= length rs)@.
 data Deque a = Deque !Int [a] [a] !Int [a] [a]
 
 -- Restores the invariant.

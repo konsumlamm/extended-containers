@@ -3,7 +3,7 @@ version:            0.1.1.0
 synopsis:           Heap and Vector container types
 description:
   This package contains general-purpose implementations of various immutable container types
-  including vectors, heaps and priority heaps.
+  including vectors, deques and heaps.
 homepage:           https://github.com/konsumlamm/extended-containers
 bug-reports:        https://github.com/konsumlamm/extended-containers/issues
 license:            BSD3
