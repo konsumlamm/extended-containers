@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE TypeFamilies #-}
 
 {- |
@@ -97,17 +98,18 @@ import Util.Internal.StrictList
 data PrioHeap k a
     = Empty
     | Heap
-        {-# UNPACK #-} !Int  -- size
+        !Int  -- size
         !k  -- root key
         a  -- root value
         !(Forest k a)  -- forest
+type role PrioHeap nominal representational
 
 type Forest k a = List (Tree k a)
 
 data Pair k a = Pair !k a
 
 data Tree k a = Node
-    { _rank :: {-# UNPACK #-} !Int
+    { _rank :: !Int
     , _root :: !k
     , _value :: a
     , _elements :: !(List (Pair k a))

@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Data.Heap.Internal
@@ -64,14 +65,15 @@ import Util.Internal.StrictList
 data Heap a
     = Empty
     | Heap
-        {-# UNPACK #-} !Int  -- size
+        !Int  -- size
         !a  -- root
         !(Forest a)  -- forest
+type role Heap nominal
 
 type Forest a = List (Tree a)
 
 data Tree a = Node
-    { _rank :: {-# UNPACK #-} !Int
+    { _rank :: !Int
     , _root :: !a
     , _elements :: !(List a)
     , _children :: !(Forest a)
